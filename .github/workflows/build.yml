@@ -30,8 +30,10 @@ jobs:
           key: gradle-${{ hashFiles('build.gradle') }}
           restore-keys: gradle-
 
+      # ForgeGradle 3 no tiene setupCIWorkspace (era de FG2).
+      # "build" descarga MCP, compila y reobfusca solo.
       - name: Compilar
-        run: $HOME/gradle-4.9/bin/gradle setupCIWorkspace build --no-daemon --stacktrace
+        run: $HOME/gradle-4.9/bin/gradle build --no-daemon --stacktrace
 
       - name: Subir el .jar
         uses: actions/upload-artifact@v4
