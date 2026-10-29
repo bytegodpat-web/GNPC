@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.npcgemini.NPCGeminiMod;
 import com.npcgemini.config.ModConfig;
-import net.minecraft.client.Minecraft;
 
 import java.io.File;
 import java.io.FileReader;
@@ -21,14 +20,25 @@ public class ProfileManager {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Map<String, BotProfile> CACHE = new ConcurrentHashMap<>();
     private static File profilesDir;
+    private static File configRoot;
 
-    public static void init() {
-        File configDir = new File(Minecraft.getMinecraft().mcDataDir, "config/" + NPCGeminiMod.MODID);
-        profilesDir = new File(configDir, "profiles");
+    /**
+     * Llamar desde preInit/init con el directorio de config del mod
+     * (event.getModConfigurationDirectory() o equivalente).
+     */
+    public static void init(File modConfigDir) {
+        if (modConfigDir == null) {
+            modConfigDir = new File("config");
+        }
+        configRoot = new File(modConfigDir, NPCGeminiMod.MODID);
+        if (!configRoot.exists()) {
+            configRoot.mkdirs();
+        }
+        profilesDir = new File(configRoot, "profiles");
         if (!profilesDir.exists()) {
             profilesDir.mkdirs();
         }
-        File skinsDir = new File(configDir, "skins");
+        File skinsDir = new File(configRoot, "skins");
         if (!skinsDir.exists()) {
             skinsDir.mkdirs();
         }
@@ -36,11 +46,11 @@ public class ProfileManager {
         if (CACHE.isEmpty()) {
             BotProfile def = new BotProfile("luna");
             def.name = "Luna";
-            def.role = "una compañera exploradora del mundo de Minecraft";
+            def.role = "una companera exploradora del mundo de Minecraft";
             def.personality = "amigable, curiosa y un poco bromista";
             def.attitude = "te considera un amigo de confianza";
             def.speechStyle = "informal y cercano";
-            def.language = "español";
+            def.language = "espanol";
             def.responseLength = "2";
             def.skinId = "luna";
             def.slimArms = true;
@@ -48,6 +58,17 @@ public class ProfileManager {
             save(def);
             CACHE.put(def.id, def);
         }
+    }
+
+    /** Compatibilidad: si alguien llama init() sin args */
+    public static void init() {
+        if (configRoot != null) return;
+        // Fallback: carpeta config relativa al working dir del juego
+        init(new File("config"));
+    }
+
+    public static File getConfigRoot() {
+        return configRoot != null ? configRoot : new File("config/" + NPCGeminiMod.MODID);
     }
 
     public static void loadAll() {
