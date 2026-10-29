@@ -1,25 +1,68 @@
 # GNPC (Gemini NPC)
 
-Mod para Minecraft Forge 1.12.2: un NPC con personalidad conectado a Gemini. Solo un jugador.
+Mod para Minecraft Forge **1.12.2**: un NPC con personalidad conectado a **Gemini** (Google AI Studio). Solo un jugador.
 
-Estado actual: **fase 1**. Compila, registra el NPC y lo dibuja con una skin fija.
-El diseno completo esta en `docs/DISENO.md`.
+## Estado
+
+Fases implementadas según `docs/DISENO.md`:
+
+| Fase | Contenido | Estado |
+|------|-----------|--------|
+| 1 | Entidad + render + skin fija | ✅ |
+| 2 | Cliente Gemini, `/bot`, chat y burbuja | ✅ |
+| 3 | Perfiles, prompt y menú de personalidad | ✅ |
+| 4 | Sistema de skins custom (carpeta + menú) | ⏳ parcial (skin por ID del mod) |
+| 5 | Contexto de mundo + captura de pantalla | ✅ |
+| 6 | `/botchat`, espontáneos y alertas | ✅ |
+| 7 | Límites, errores, HUD, privacidad | ✅ básico |
+
+## Requisitos
+
+- Minecraft Forge **1.12.2-14.23.5.2860**
+- API key gratuita de [Google AI Studio](https://aistudio.google.com/apikey)
 
 ## Compilar (GitHub Actions)
 
-1. Sube todo el contenido de este proyecto al repositorio, incluida la carpeta `.github`.
-2. Abre la pestana **Actions** y espera a que termine el trabajo **Build** (unos minutos).
-3. Entra en la ejecucion y descarga el artefacto **npcgemini-jar**.
-4. Descomprime el zip y copia el `.jar` a la carpeta `mods` de Forge 1.12.2 (14.23.5.2860).
+1. Sube el proyecto al repositorio (incluida `.github`).
+2. Abre **Actions** y espera el trabajo **Build**.
+3. Descarga el artefacto **npcgemini-jar**.
+4. Copia el `.jar` a la carpeta `mods` de Forge 1.12.2.
 
-Si falla, copia las lineas de error del log y pasaselas a Claude.
+## Configuración
 
-## Probar en el juego
+Al arrancar el juego se crea `config/npcgemini.cfg`. Edita:
 
-El huevo de aparicion esta en la pestana creativa de varios (Miscellaneous). Al colocarlo aparece
-el NPC, mira al jugador cercano y no recibe dano.
+```
+apiKey=TU_CLAVE_DE_AISTUDIO
+model=gemini-2.0-flash
+```
 
-## Si `.github/workflows/build.yml` no se sube
+Los perfiles de bots se guardan en `config/npcgemini/profiles/`.
 
-Algunos exploradores ocultan las carpetas con punto. En GitHub usa **Add file > Create new file**,
-escribe `.github/workflows/build.yml` como nombre y pega el contenido del archivo.
+## Cómo se usa
+
+1. **Huevo de aparición** en la pestaña creativa *Miscellaneous*.
+2. Click derecho normal → saludo. **Click derecho agachado** → menú de personalidad.
+3. Hablar con el bot:
+   - `/bot Luna hola qué tal`
+   - `/botchat Luna` → todo lo que escribas va al bot hasta `/botchat off`
+4. La respuesta sale en el chat y como **burbuja** sobre la cabeza del NPC (si está cerca).
+5. Si estás cerca y las capturas están activas, se envía una foto de lo que ves.
+
+## Comandos
+
+| Comando | Descripción |
+|---------|-------------|
+| `/bot <nombre> <mensaje>` | Mensaje suelto al bot |
+| `/botchat <nombre>` | Modo conversación |
+| `/botchat off` | Salir del modo |
+
+## Privacidad
+
+Las capturas de pantalla se envían a Google cuando están activadas. En el plan gratuito, Google puede usar los datos para entrenar. Puedes desactivar capturas por bot en el menú de personalidad o en la config global.
+
+## Notas técnicas
+
+- 100 % cliente (un jugador). La API key nunca se guarda en el mundo ni en el NBT de la entidad.
+- Un solo hilo de peticiones, cooldown y tope diario configurables.
+- El mod decide *cuándo* habla y *qué es verdad* del mundo; Gemini solo decide *cómo* se dice.
