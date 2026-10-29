@@ -1,0 +1,11 @@
+[
+  {
+    "modid": "npcgemini",
+    "name": "Gemini NPC",
+    "description": "NPC con personalidad conectado a Gemini.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "authorList": ["bytegodpat-web"],
+    "dependencies": []
+  }
+]
