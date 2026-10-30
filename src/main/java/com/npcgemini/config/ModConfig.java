@@ -14,7 +14,7 @@ public class ModConfig {
     private static Configuration config;
 
     public static String apiKey = "";
-    public static String model = "gemini-2.0-flash";
+    public static String model = "gemini-3.5-flash";
     public static int maxCaptureSize = 1024;
     public static int dailyRequestLimit = 200;
     public static int minRequestCooldownSec = 3;
@@ -43,7 +43,7 @@ public class ModConfig {
 
         apiKey = config.getString("apiKey", "general", "",
                 "API key de Google AI Studio (https://aistudio.google.com/apikey). Nunca se comparte.");
-        model = config.getString("model", "general", "gemini-2.0-flash",
+        model = config.getString("model", "general", "gemini-3.5-flash",
                 "Modelo de Gemini a usar. Cambia si Google retira el actual.");
         maxCaptureSize = config.getInt("maxCaptureSize", "general", 1024, 256, 2048,
                 "Lado largo máximo de la captura en píxeles.");
@@ -76,7 +76,7 @@ public class ModConfig {
     public static void save() {
         if (config == null) return;
         config.get("general", "apiKey", "").set(apiKey);
-        config.get("general", "model", "gemini-2.0-flash").set(model);
+        config.get("general", "model", "gemini-3.5-flash").set(model);
         config.get("general", "maxCaptureSize", 1024).set(maxCaptureSize);
         config.get("general", "dailyRequestLimit", 200).set(dailyRequestLimit);
         config.get("general", "minRequestCooldownSec", 3).set(minRequestCooldownSec);
@@ -93,7 +93,7 @@ public class ModConfig {
 
     public static boolean canRequest() {
         long now = System.currentTimeMillis();
-        String today = java.time.LocalDate.now().toString();
+        String today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
         if (!today.equals(lastRequestDay)) {
             lastRequestDay = today;
             requestsToday = 0;
@@ -106,7 +106,7 @@ public class ModConfig {
 
     public static void recordRequest() {
         lastRequestMs = System.currentTimeMillis();
-        String today = java.time.LocalDate.now().toString();
+        String today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
         if (!today.equals(lastRequestDay)) {
             lastRequestDay = today;
             requestsToday = 0;
