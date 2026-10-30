@@ -1,0 +1,38 @@
+GNPC 2 - ALPHA INTEGRADA (base GNPC 1)
+======================================
+
+Esta entrega reúne en un único proyecto los primeros sistemas de GNPC 2.
+
+CAMBIOS DE CÓDIGO INCLUIDOS EN ESTA ENTREGA
+- Conserva el movimiento follow/come/stop de GNPC 1.
+- La entidad ya no es invulnerable por defecto y conserva salud normal.
+- Recolección automática de EntityItem cercana, apilando en 27 espacios.
+- Persistencia NBT del inventario, perfil, propietario y orden de movimiento.
+- Persistencia de casa y puntos recordados.
+- Comandos conversacionales locales para: entregar todo, entregar un objeto
+  por nombre, activar/desactivar combate, establecer casa, volver a casa,
+  recordar un punto, ir a un punto, talar y romper un bloque cercano.
+- IA básica de ataque a mobs hostiles.
+- Intento de protección ante caídas usando cubeta de agua, heno o telaraña
+  que el NPC lleve en su inventario.
+- Comando /npcmsg para hablar con el NPC más cercano.
+- Conserva perfiles, skins, burbujas, chat y pantallas existentes.
+
+LIMITACIONES IMPORTANTES DE ESTA ALPHA
+- No es todavía una implementación completa de todas las funciones planeadas:
+  minería/tala prolongada con planificación, crafteo y evaluación de recursos,
+  exploración autónoma avanzada, navegación robusta, combate táctico, ruptura
+  deliberada de telarañas con espada, sistema completo de tareas y spawn
+  natural en aldeas con persistencia/cooldown por jugador aún requieren trabajo.
+- La GUI existente continúa usando la resolución de entidad del servidor
+  integrado; esta entrega no incorpora una red de paquetes para multijugador.
+- La lógica de rescate es experimental. No garantiza salvar al NPC y modifica
+  el bloque inmediatamente inferior cuando detecta una caída peligrosa.
+- Los comandos vanilla /tell y /msg no reconocen entidades que no sean jugadores.
+  /npcmsg es la alternativa local añadida.
+
+COMPILACIÓN
+- Proyecto configurado para Minecraft 1.12.2 / Forge 14.23.5.2860 / Java 8.
+- No se pudo ejecutar Gradle ni una prueba dentro del cliente Minecraft en el
+  entorno de generación. Compilar y probar antes de instalar en un mundo
+  importante; hacer copia de seguridad del mundo.

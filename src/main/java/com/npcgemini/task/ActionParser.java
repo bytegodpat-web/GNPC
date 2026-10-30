@@ -11,7 +11,7 @@ public class ActionParser {
 
     public enum Type {
         NONE, FOLLOW, STOP, COME, TP, MINE, CHOP, REMEMBER, GOTO,
-        INVENTORY, DELIVER, COMBAT_ON, COMBAT_OFF, HOME_SET, HOME_GO, WAYPOINTS, OPEN_INV
+        INVENTORY, DELIVER, DELIVER_ITEM, COMBAT_ON, COMBAT_OFF, HOME_SET, HOME_GO, WAYPOINTS, OPEN_INV, EXPLORE
     }
 
     public static class Result {
@@ -19,6 +19,7 @@ public class ActionParser {
         public Block block;
         public String waypoint;
         public String raw;
+        public String itemName;
     }
 
     private static final Map<String, Block> ORES = new HashMap<>();
@@ -59,10 +60,17 @@ public class ActionParser {
         if (containsAny(t, "inventario", "inventory", "que tienes", "qué tienes", "muestra items")) {
             r.type = Type.INVENTORY; return r;
         }
-        if (containsAny(t, "dame todo", "entregame", "entrégame", "devuelveme", "devuélveme",
+        if (containsAny(t, "dame todo", "entregame todo", "entrégame todo", "devuelveme todo", "devuélveme todo",
                 "dame lo que tienes", "vacia inventario", "vacía inventario", "give me all")) {
             r.type = Type.DELIVER; return r;
         }
+        if (t.startsWith("dame ") || t.startsWith("traeme ") || t.startsWith("tráeme ")) {
+            r.type = Type.DELIVER_ITEM;
+            r.itemName = t.replaceFirst("^(dame|traeme|tráeme)\\s+", "").replaceAll("[^a-z0-9_ ]", "").trim();
+            return r;
+        }
+        if (containsAny(t, "explora", "explorar", "reconoce la zona", "explore")) { r.type = Type.EXPLORE; return r; }
+
         if (containsAny(t, "no pelees", "no ataques", "deja de pelear", "combat off", "modo pacifico", "modo pacífico")) {
             r.type = Type.COMBAT_OFF; return r;
         }

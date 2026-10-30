@@ -41,8 +41,8 @@ public class GuiNPCInventory extends GuiScreen {
     @Override
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
+        // Nunca modificar la copia cliente: el inventario real vive en la entidad del servidor integrado.
         serverNpc = ChatHandler.resolveServerNpc(clientNpc);
-        if (serverNpc == null) serverNpc = clientNpc;
 
         invLeft = width / 2 - (COLS * SLOT) / 2;
         invTop = height / 2 - 40;
@@ -78,28 +78,29 @@ public class GuiNPCInventory extends GuiScreen {
         int slot = slotAt(mouseX, mouseY);
         if (slot < 0) return;
 
-        // Click izquierdo: sacar stack al jugador
+        ItemStack slotStack = serverNpc.getStackInSlot(slot);
+        ItemStack held = mc.player.getHeldItemMainhand();
+
+        // Click izquierdo: transferir el stack completo desde la mano al NPC,
+        // o retirar el stack del NPC si la mano está vacía.
         if (mouseButton == 0) {
-            ItemStack s = serverNpc.getStackInSlot(slot);
-            if (!s.isEmpty()) {
-                ItemStack copy = s.copy();
-                if (mc.player.inventory.addItemStackToInventory(copy)) {
-                    serverNpc.setStackInSlot(slot, ItemStack.EMPTY);
-                } else if (copy.getCount() < s.getCount()) {
-                    s.setCount(copy.getCount());
+            if (!held.isEmpty()) {
+                int leftover = serverNpc.insertItem(held);
+                int moved = held.getCount() - leftover;
+                if (moved > 0) held.shrink(moved);
+            } else if (!slotStack.isEmpty()) {
+                // Extraer primero del NPC y devolver al NPC lo que no quepa en el jugador.
+                ItemStack extracted = serverNpc.extractFromSlot(slot, slotStack.getCount());
+                if (!extracted.isEmpty() && !mc.player.inventory.addItemStackToInventory(extracted)) {
+                    if (!extracted.isEmpty()) serverNpc.insertItem(extracted);
                 }
             }
         }
-        // Click derecho: meter 1 del item en mano del jugador en ese slot si esta vacio
-        if (mouseButton == 1) {
-            ItemStack held = mc.player.getHeldItemMainhand();
-            if (!held.isEmpty() && held.getItem() != net.minecraft.init.Items.AIR
-                    && serverNpc.getStackInSlot(slot).isEmpty()) {
-                ItemStack one = held.copy();
-                one.setCount(1);
-                serverNpc.setStackInSlot(slot, one);
-                held.shrink(1);
-            }
+        // Click derecho: entregar solo una unidad desde la mano.
+        if (mouseButton == 1 && !held.isEmpty()) {
+            ItemStack one = held.copy();
+            one.setCount(1);
+            if (serverNpc.insertItem(one) == 0) held.shrink(1);
         }
     }
 
@@ -119,6 +120,9 @@ public class GuiNPCInventory extends GuiScreen {
         drawDefaultBackground();
         String title = "Inventario de " + (serverNpc != null ? serverNpc.getName() : "NPC");
         drawCenteredString(fontRenderer, "\u00a7d" + title, width / 2, invTop - 16, 0xFFFFFF);
+        if (serverNpc == null) {
+            drawCenteredString(fontRenderer, "§cNo se pudo conectar con el inventario del servidor", width / 2, invTop + 20, 0xFFFFFF);
+        }
 
         // fondo
         drawRect(invLeft - 4, invTop - 4, invLeft + COLS * SLOT + 4, invTop + ROWS * SLOT + 4, 0xCC000000);
@@ -152,7 +156,9 @@ public class GuiNPCInventory extends GuiScreen {
         }
 
         super.drawScreen(mouseX, mouseY, partialTicks);
-        fontRenderer.drawString("\u00a77Click izq: sacar  |  Click der: guardar 1 de la mano", invLeft, invTop + ROWS * SLOT + 40, 0xAAAAAA);
+        fontRenderer.drawString("§7Click izq: guardar stack / retirar si tienes la mano vacía", invLeft - 24, invTop + ROWS * SLOT + 40, 0xAAAAAA);
+        fontRenderer.drawString("§7Click der: guardar 1 objeto desde la mano", invLeft - 24, invTop + ROWS * SLOT + 51, 0xAAAAAA);
+        if (serverNpc != null) fontRenderer.drawString("§7Espacios usados: " + serverNpc.getUsedSlots() + "/27", invLeft, invTop - 27, 0xAAAAAA);
     }
 
     @Override

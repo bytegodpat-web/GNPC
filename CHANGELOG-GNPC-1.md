@@ -26,3 +26,11 @@ Esta entrega parte del código de `GNPC-main.zip` y conserva sus archivos y recu
 5. Prueba en un mundo de un jugador con el NPC cerca y usa el chat o `/bot <perfil> <orden>`.
 
 No se incluye un JAR porque esta entrega todavía requiere compilación y prueba dentro de Minecraft 1.12.2.
+
+### Corrección de inventario y recolección
+- El NPC ahora recoge objetos del suelo dentro de un radio corto, únicamente en el servidor.
+- La inserción apila objetos compatibles y respeta el límite de cada stack y los 27 espacios.
+- La GUI ya no modifica silenciosamente la copia cliente cuando no encuentra la entidad del servidor.
+- Click izquierdo con objeto en mano: deposita todo lo que quepa; click derecho: deposita una unidad.
+- Mano vacía + click izquierdo sobre un espacio ocupado: retira el stack al inventario del jugador.
+- Se mantiene el guardado/cargado NBT que ya tenía el inventario de la entidad.

@@ -25,6 +25,7 @@ public class CommandBot extends CommandBase {
     public static void register() {
         ClientCommandHandler.instance.registerCommand(new CommandBot());
         ClientCommandHandler.instance.registerCommand(new CommandBotChat());
+        CommandNPC.register();
     }
 
     @Override

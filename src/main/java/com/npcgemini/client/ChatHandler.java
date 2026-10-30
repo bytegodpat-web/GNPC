@@ -71,18 +71,46 @@ public class ChatHandler {
         // Las órdenes de movimiento básicas se ejecutan localmente en el servidor integrado.
         EntityNPC nearNpc = findNearbyNpc(player, botId, 16.0);
         ActionParser.Result action = ActionParser.parse(text);
-        if (nearNpc != null && (action.type == ActionParser.Type.FOLLOW
-                || action.type == ActionParser.Type.COME || action.type == ActionParser.Type.STOP)) {
+        if (nearNpc != null) {
             EntityNPC serverNpc = resolveServerNpc(nearNpc);
             if (serverNpc != null) {
-                int order = action.type == ActionParser.Type.FOLLOW ? EntityNPC.ORDER_FOLLOW
-                        : action.type == ActionParser.Type.COME ? EntityNPC.ORDER_COME : EntityNPC.ORDER_IDLE;
-                serverNpc.setMovementOrder(player.getUniqueID(), order);
-                String confirmation = action.type == ActionParser.Type.FOLLOW ? "Voy contigo."
-                        : action.type == ActionParser.Type.COME ? "Voy hacia ti." : "Me detengo.";
-                player.sendMessage(new TextComponentString("§d[" + profile.name + "] §f" + confirmation));
-                if (ModConfig.bubbleEnabled) nearNpc.showBubble(confirmation);
-                return;
+                String confirmation = null;
+                if (action.type == ActionParser.Type.FOLLOW || action.type == ActionParser.Type.COME || action.type == ActionParser.Type.STOP) {
+                    int order = action.type == ActionParser.Type.FOLLOW ? EntityNPC.ORDER_FOLLOW
+                            : action.type == ActionParser.Type.COME ? EntityNPC.ORDER_COME : EntityNPC.ORDER_IDLE;
+                    serverNpc.setMovementOrder(player.getUniqueID(), order);
+                    confirmation = action.type == ActionParser.Type.FOLLOW ? "Voy contigo."
+                            : action.type == ActionParser.Type.COME ? "Voy hacia ti." : "Me detengo.";
+                } else if (action.type == ActionParser.Type.DELIVER) {
+                    int n = serverNpc.deliverAllTo(player);
+                    confirmation = "Te entregué " + n + " stacks.";
+                } else if (action.type == ActionParser.Type.DELIVER_ITEM) {
+                    net.minecraft.item.Item item = net.minecraft.item.Item.getByNameOrId(action.itemName.replace(' ', '_'));
+                    int n = serverNpc.giveItemsTo(player, item, 64);
+                    confirmation = item == null ? "No reconozco ese objeto." : "Te entregué " + n + " unidades.";
+                } else if (action.type == ActionParser.Type.COMBAT_ON || action.type == ActionParser.Type.COMBAT_OFF) {
+                    serverNpc.setCombatEnabled(action.type == ActionParser.Type.COMBAT_ON);
+                    confirmation = action.type == ActionParser.Type.COMBAT_ON ? "Te defenderé." : "No atacaré.";
+                } else if (action.type == ActionParser.Type.HOME_SET) {
+                    serverNpc.setHomePosition(serverNpc.getPosition()); confirmation = "Recordaré este lugar como casa.";
+                } else if (action.type == ActionParser.Type.HOME_GO && serverNpc.getHomePosition() != null) {
+                    serverNpc.getNavigator().tryMoveToXYZ(serverNpc.getHomePosition().getX(), serverNpc.getHomePosition().getY(), serverNpc.getHomePosition().getZ(), 1.0D);
+                    confirmation = "Voy a casa.";
+                } else if (action.type == ActionParser.Type.REMEMBER) {
+                    serverNpc.rememberPlace(action.waypoint, serverNpc.getPosition()); confirmation = "Recordaré este lugar como " + action.waypoint + ".";
+                } else if (action.type == ActionParser.Type.GOTO) {
+                    net.minecraft.util.math.BlockPos pos = serverNpc.getRememberedPlace(action.waypoint);
+                    if (pos != null) { serverNpc.getNavigator().tryMoveToXYZ(pos.getX(), pos.getY(), pos.getZ(), 1.0D); confirmation = "Voy a " + action.waypoint + "."; }
+                } else if (action.type == ActionParser.Type.MINE && action.block != null) {
+                    int mined = serverNpc.workOnBlock(action.block, 12); confirmation = mined > 0 ? "He empezado a recoger " + ActionParser.blockName(action.block) + "." : "No veo ese bloque cerca.";
+                } else if (action.type == ActionParser.Type.CHOP) {
+                    int chopped = serverNpc.chopNearbyTree(12); confirmation = chopped > 0 ? "He empezado a talar." : "No veo troncos cerca.";
+                }
+                if (confirmation != null) {
+                    player.sendMessage(new TextComponentString("§d[" + profile.name + "] §f" + confirmation));
+                    if (ModConfig.bubbleEnabled) nearNpc.showBubble(confirmation);
+                    return;
+                }
             }
         }
         boolean near = nearNpc != null;
