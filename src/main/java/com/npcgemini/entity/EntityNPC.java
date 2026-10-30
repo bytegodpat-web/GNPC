@@ -6,6 +6,8 @@ import net.minecraft.entity.EntityCreature;
 import net.minecraft.entity.SharedMonsterAttributes;
 import net.minecraft.entity.ai.EntityAILookIdle;
 import net.minecraft.entity.ai.EntityAISwimming;
+import net.minecraft.entity.ai.EntityAIBase;
+import java.util.UUID;
 import net.minecraft.entity.ai.EntityAIWatchClosest;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.ItemStackHelper;
@@ -26,6 +28,11 @@ public class EntityNPC extends EntityCreature {
             EntityDataManager.createKey(EntityNPC.class, DataSerializers.STRING);
 
     public static final int INV_SIZE = 27;
+    public static final int ORDER_IDLE = 0;
+    public static final int ORDER_FOLLOW = 1;
+    public static final int ORDER_COME = 2;
+    private UUID ownerUuid;
+    private int movementOrder = ORDER_IDLE;
     private final NonNullList<ItemStack> inventory = NonNullList.withSize(INV_SIZE, ItemStack.EMPTY);
 
     // Solo cliente: burbuja de texto
@@ -49,6 +56,7 @@ public class EntityNPC extends EntityCreature {
     @Override
     protected void initEntityAI() {
         this.tasks.addTask(0, new EntityAISwimming(this));
+        this.tasks.addTask(2, new EntityAIFollowOwner(this));
         this.tasks.addTask(1, new EntityAIWatchClosest(this, EntityPlayer.class, 8.0F));
         this.tasks.addTask(2, new EntityAILookIdle(this));
     }
@@ -58,6 +66,29 @@ public class EntityNPC extends EntityCreature {
         super.applyEntityAttributes();
         this.getEntityAttribute(SharedMonsterAttributes.MAX_HEALTH).setBaseValue(20.0D);
         this.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).setBaseValue(0.25D);
+    }
+
+    /** Asigna al jugador y activa una orden de movimiento (solo servidor). */
+    public void setMovementOrder(UUID owner, int order) {
+        if (world.isRemote) return;
+        this.ownerUuid = owner;
+        this.movementOrder = order;
+        if (order == ORDER_IDLE) this.getNavigator().clearPath();
+    }
+
+    public int getMovementOrder() {
+        return movementOrder;
+    }
+
+    public EntityPlayer getOwnerPlayer() {
+        if (ownerUuid == null || world.isRemote) return null;
+        return world.getPlayerEntityByUUID(ownerUuid);
+    }
+
+    public void clearMovementOrder() {
+        if (world.isRemote) return;
+        movementOrder = ORDER_IDLE;
+        getNavigator().clearPath();
     }
 
     public String getProfileId() {
@@ -159,6 +190,8 @@ public class EntityNPC extends EntityCreature {
         super.writeEntityToNBT(compound);
         compound.setString("ProfileId", getProfileId());
         compound.setString("SkinId", getSkinId());
+        compound.setInteger("MovementOrder", movementOrder);
+        if (ownerUuid != null) compound.setUniqueId("OwnerUUID", ownerUuid);
         ItemStackHelper.saveAllItems(compound, inventory);
     }
 
@@ -171,6 +204,8 @@ public class EntityNPC extends EntityCreature {
         if (compound.hasKey("SkinId")) {
             setSkinId(compound.getString("SkinId"));
         }
+        movementOrder = compound.getInteger("MovementOrder");
+        ownerUuid = compound.hasUniqueId("OwnerUUID") ? compound.getUniqueId("OwnerUUID") : null;
         ItemStackHelper.loadAllItems(compound, inventory);
     }
 

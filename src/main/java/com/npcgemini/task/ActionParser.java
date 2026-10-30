@@ -50,7 +50,7 @@ public class ActionParser {
         r.raw = text;
         String t = text.toLowerCase(Locale.ROOT).trim();
 
-        if (containsAny(t, "para", "stop", "detente", "quieto", "cancela", "cancelar")) {
+        if (t.equals("para") || t.startsWith("para ") || containsAny(t, "stop", "detente", "quieto", "cancela", "cancelar")) {
             r.type = Type.STOP; return r;
         }
         if (containsAny(t, "abre inventario", "abrir inventario", "open inventory", "muestra inventario grafico")) {

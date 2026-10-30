@@ -6,6 +6,7 @@ import com.npcgemini.entity.EntityNPC;
 import com.npcgemini.gemini.GeminiClient;
 import com.npcgemini.profile.BotProfile;
 import com.npcgemini.profile.ProfileManager;
+import com.npcgemini.task.ActionParser;
 import com.npcgemini.util.ContextBuilder;
 import com.npcgemini.util.ScreenshotHelper;
 import net.minecraft.client.Minecraft;
@@ -67,8 +68,23 @@ public class ChatHandler {
             return;
         }
 
-        // Buscar NPC cercano con ese perfil
+        // Las órdenes de movimiento básicas se ejecutan localmente en el servidor integrado.
         EntityNPC nearNpc = findNearbyNpc(player, botId, 16.0);
+        ActionParser.Result action = ActionParser.parse(text);
+        if (nearNpc != null && (action.type == ActionParser.Type.FOLLOW
+                || action.type == ActionParser.Type.COME || action.type == ActionParser.Type.STOP)) {
+            EntityNPC serverNpc = resolveServerNpc(nearNpc);
+            if (serverNpc != null) {
+                int order = action.type == ActionParser.Type.FOLLOW ? EntityNPC.ORDER_FOLLOW
+                        : action.type == ActionParser.Type.COME ? EntityNPC.ORDER_COME : EntityNPC.ORDER_IDLE;
+                serverNpc.setMovementOrder(player.getUniqueID(), order);
+                String confirmation = action.type == ActionParser.Type.FOLLOW ? "Voy contigo."
+                        : action.type == ActionParser.Type.COME ? "Voy hacia ti." : "Me detengo.";
+                player.sendMessage(new TextComponentString("§d[" + profile.name + "] §f" + confirmation));
+                if (ModConfig.bubbleEnabled) nearNpc.showBubble(confirmation);
+                return;
+            }
+        }
         boolean near = nearNpc != null;
 
         String context = ContextBuilder.build(player, near);
