@@ -22,7 +22,6 @@ public class EntityNPC extends EntityCreature {
     private static final DataParameter<String> SKIN_ID =
             EntityDataManager.createKey(EntityNPC.class, DataSerializers.STRING);
 
-    // Solo cliente: burbuja de texto
     private String bubbleText = null;
     private long bubbleUntil = 0L;
 
@@ -31,6 +30,7 @@ public class EntityNPC extends EntityCreature {
         this.setSize(0.6F, 1.8F);
         this.setEntityInvulnerable(true);
         this.enablePersistence();
+        this.setAlwaysRenderNameTag(true);
     }
 
     @Override
@@ -64,6 +64,7 @@ public class EntityNPC extends EntityCreature {
         BotProfile p = ProfileManager.get(id);
         if (p != null) {
             setSkinId(p.skinId);
+            applyNameFromProfile(p);
         }
     }
 
@@ -80,7 +81,24 @@ public class EntityNPC extends EntityCreature {
         return ProfileManager.getOrCreate(getProfileId());
     }
 
-    /** Solo cliente */
+    /** Actualiza el nametag visible con el nombre del perfil */
+    public void applyNameFromProfile(BotProfile p) {
+        if (p == null) return;
+        this.setCustomNameTag(p.name);
+        this.setAlwaysRenderNameTag(true);
+    }
+
+    @Override
+    public String getName() {
+        BotProfile p = ProfileManager.get(getProfileId());
+        if (p != null && p.name != null && !p.name.isEmpty()) {
+            return p.name;
+        }
+        String tag = this.getCustomNameTag();
+        if (tag != null && !tag.isEmpty()) return tag;
+        return super.getName();
+    }
+
     public void showBubble(String text) {
         if (text == null || text.isEmpty()) {
             bubbleText = null;
@@ -120,15 +138,31 @@ public class EntityNPC extends EntityCreature {
             } else {
                 BotProfile p = getProfile();
                 if (p != null) {
+                    applyNameFromProfile(p);
                     player.sendStatusMessage(
                             new net.minecraft.util.text.TextComponentString(
-                                    "\u00a7d[" + p.name + "] \u00a7f*te mira y sonr\u00ede*"),
+                                    "\u00a7d[" + p.name + "] \u00a7f*te mira y sonrie*"),
                             true);
                 }
             }
             return true;
         }
         return super.processInteract(player, hand);
+    }
+
+    @Override
+    public void onUpdate() {
+        super.onUpdate();
+        // Asegurar nametag en cliente
+        if (world.isRemote && ticksExisted % 40 == 0) {
+            BotProfile p = ProfileManager.get(getProfileId());
+            if (p != null) {
+                String current = this.getCustomNameTag();
+                if (current == null || !current.equals(p.name)) {
+                    applyNameFromProfile(p);
+                }
+            }
+        }
     }
 
     @Override
@@ -147,6 +181,8 @@ public class EntityNPC extends EntityCreature {
         if (compound.hasKey("SkinId")) {
             setSkinId(compound.getString("SkinId"));
         }
+        BotProfile p = ProfileManager.get(getProfileId());
+        if (p != null) applyNameFromProfile(p);
     }
 
     @Override
