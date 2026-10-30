@@ -6,6 +6,7 @@ import com.npcgemini.entity.EntityNPC;
 import com.npcgemini.gemini.GeminiClient;
 import com.npcgemini.profile.BotProfile;
 import com.npcgemini.profile.ProfileManager;
+import com.npcgemini.task.ActionParser;
 import com.npcgemini.util.ContextBuilder;
 import com.npcgemini.util.ScreenshotHelper;
 import net.minecraft.client.Minecraft;
@@ -64,14 +65,39 @@ public class ChatHandler {
             return;
         }
 
-        // Buscar NPC cercano con ese perfil
-        EntityNPC nearNpc = findNearbyNpc(player, botId, 16.0);
+        // Buscar NPC cercano (rango amplio para ordenes)
+        EntityNPC nearNpc = findNearbyNpc(player, botId, 48.0);
         boolean near = nearNpc != null;
 
+        // --- Acciones del mod (seguir, picar, etc.) ---
+        String actionNote = "";
+        ActionParser.Result action = ActionParser.parse(text);
+        if (action.type != ActionParser.Type.NONE) {
+            if (nearNpc == null) {
+                actionNote = "[ACCION: fallida] No hay NPC cargado cerca para ejecutar la orden.";
+                player.sendMessage(new TextComponentString("§cNo hay NPC cerca para esa orden."));
+            } else {
+                // En SP el lado cliente y servidor comparten entidad del integrated server
+                // Ejecutar en el hilo del juego; la logica de task corre en onLivingUpdate servidor
+                EntityNPC serverNpc = resolveServerNpc(nearNpc);
+                String result = serverNpc.applyAction(action, player);
+                if (result != null) {
+                    actionNote = "[ACCION: " + action.type.name() + "] " + result;
+                    player.sendMessage(new TextComponentString("§a" + result));
+                }
+            }
+        }
+
         String context = ContextBuilder.build(player, near);
+        if (nearNpc != null) {
+            context += " tarea=" + nearNpc.getTask().name();
+            context += " inv=" + nearNpc.describeInventory();
+        }
+        if (!actionNote.isEmpty()) {
+            context += "\n" + actionNote;
+        }
 
         if (tryCapture && near && profile.capturesEnabled && ModConfig.capturesEnabledDefault) {
-            // Capturar en el siguiente tick de render (chat cerrado)
             pendingCapture = true;
             pendingBotId = botId;
             pendingText = text;
@@ -140,6 +166,22 @@ public class ChatHandler {
         String context = ContextBuilder.build(player, near);
         EntityNPC nearNpc = findNearbyNpc(player, botId, 16.0);
         doAsk(profile, text, context, jpeg, nearNpc);
+    }
+
+    
+    /** En singleplayer, obtener la entidad del servidor integrado (donde corre el pathfinding). */
+    public static EntityNPC resolveServerNpc(EntityNPC clientNpc) {
+        if (clientNpc == null) return null;
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.getIntegratedServer() == null) return clientNpc;
+        try {
+            net.minecraft.world.World serverWorld = mc.getIntegratedServer()
+                    .getWorld(clientNpc.dimension);
+            if (serverWorld == null) return clientNpc;
+            net.minecraft.entity.Entity e = serverWorld.getEntityByID(clientNpc.getEntityId());
+            if (e instanceof EntityNPC) return (EntityNPC) e;
+        } catch (Exception ignored) {}
+        return clientNpc;
     }
 
     public static EntityNPC findNearbyNpc(EntityPlayerSP player, String profileId, double range) {
