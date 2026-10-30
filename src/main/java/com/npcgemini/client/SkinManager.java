@@ -18,6 +18,9 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class SkinManager {
 
+    /** Skins incluidas en el mod (assets/npcgemini/textures/entity/npc/<id>.png). */
+    public static final String[] BUILTIN = {"luna", "kai", "mira", "bruno"};
+
     private static final Map<String, ResourceLocation> CACHE = new ConcurrentHashMap<>();
     private static final Map<String, DynamicTexture> DYN = new ConcurrentHashMap<>();
     private static final ResourceLocation FALLBACK =

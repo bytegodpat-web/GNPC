@@ -3,7 +3,7 @@
     "modid": "npcgemini",
     "name": "Gemini NPC",
     "description": "NPC con personalidad conectado a Gemini.",
-    "version": "0.2.0",
+    "version": "0.4.0",
     "mcversion": "1.12.2",
     "authorList": ["bytegodpat-web"],
     "dependencies": []

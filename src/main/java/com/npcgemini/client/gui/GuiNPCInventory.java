@@ -27,8 +27,15 @@ public class GuiNPCInventory extends GuiScreen {
 
     private int invLeft, invTop;
 
+    private final GuiScreen parent;
+
     public GuiNPCInventory(EntityNPC npc) {
+        this(npc, null);
+    }
+
+    public GuiNPCInventory(EntityNPC npc, GuiScreen parent) {
         this.clientNpc = npc;
+        this.parent = parent;
     }
 
     @Override
@@ -42,7 +49,7 @@ public class GuiNPCInventory extends GuiScreen {
 
         buttonList.clear();
         buttonList.add(new GuiButton(0, width / 2 - 100, invTop + ROWS * SLOT + 16, 98, 20, "Tomar todo"));
-        buttonList.add(new GuiButton(1, width / 2 + 2, invTop + ROWS * SLOT + 16, 98, 20, "Cerrar"));
+        buttonList.add(new GuiButton(1, width / 2 + 2, invTop + ROWS * SLOT + 16, 98, 20, parent != null ? "Volver" : "Cerrar"));
     }
 
     @Override
@@ -53,7 +60,7 @@ public class GuiNPCInventory extends GuiScreen {
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == 1) {
-            mc.displayGuiScreen(null);
+            mc.displayGuiScreen(parent);
             return;
         }
         if (button.id == 0 && serverNpc != null && mc.player != null) {
@@ -145,7 +152,7 @@ public class GuiNPCInventory extends GuiScreen {
         }
 
         super.drawScreen(mouseX, mouseY, partialTicks);
-        fontRenderer.drawString("\u00a77Click: sacar  |  Shift+click NPC: abrir", invLeft, invTop + ROWS * SLOT + 40, 0xAAAAAA);
+        fontRenderer.drawString("\u00a77Click izq: sacar  |  Click der: guardar 1 de la mano", invLeft, invTop + ROWS * SLOT + 40, 0xAAAAAA);
     }
 
     @Override

@@ -147,18 +147,8 @@ public class EntityNPC extends EntityCreature {
     @Override
     public boolean processInteract(EntityPlayer player, EnumHand hand) {
         if (world.isRemote && hand == EnumHand.MAIN_HAND) {
-            if (player.isSneaking()) {
-                net.minecraft.client.Minecraft.getMinecraft().displayGuiScreen(
-                        new com.npcgemini.client.gui.GuiNpcMenu(this));
-            } else {
-                BotProfile p = getProfile();
-                if (p != null) {
-                    player.sendStatusMessage(
-                            new net.minecraft.util.text.TextComponentString(
-                                    "\u00a7d[" + p.name + "] \u00a7f*te mira y sonr\u00ede*"),
-                            true);
-                }
-            }
+            net.minecraft.client.Minecraft.getMinecraft().displayGuiScreen(
+                    new com.npcgemini.client.gui.GuiNpcInteract(this));
             return true;
         }
         return super.processInteract(player, hand);
