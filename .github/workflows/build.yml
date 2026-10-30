@@ -27,16 +27,37 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('build.gradle') }}
+          key: gradle-${{ hashFiles('**/build.gradle') }}
           restore-keys: gradle-
 
-      # ForgeGradle 3 no tiene setupCIWorkspace (era de FG2).
-      # "build" descarga MCP, compila y reobfusca solo.
+      # Busca build.gradle aunque el proyecto esté dentro de una subcarpeta (p. ej. GNPC-main/)
       - name: Compilar
-        run: $HOME/gradle-4.9/bin/gradle build --no-daemon --stacktrace
+        run: |
+          BG=$(find . -name build.gradle -not -path './node_modules/*' | head -n1)
+          if [ -z "$BG" ]; then echo "::error::No se encontro build.gradle en el repositorio"; ls -R | head -50; exit 1; fi
+          DIR=$(dirname "$BG")
+          echo "Proyecto en: $DIR"
+          cd "$DIR"
+          set +e
+          $HOME/gradle-4.9/bin/gradle build --no-daemon --console=plain > "$GITHUB_WORKSPACE/build.log" 2>&1
+          CODE=$?
+          set -e
+          if [ $CODE -ne 0 ]; then
+            echo "::error title=Resumen del fallo::$(grep -E 'error:|What went wrong|FAILED|Could not' -A2 "$GITHUB_WORKSPACE/build.log" | head -25 | tr '\n' ' ' | cut -c1-900)"
+            grep -E 'error:|What went wrong|FAILED|Could not' -A3 "$GITHUB_WORKSPACE/build.log" | head -80
+            tail -40 "$GITHUB_WORKSPACE/build.log"
+          fi
+          exit $CODE
+
+      - name: Subir el log de compilacion
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
 
       - name: Subir el .jar
         uses: actions/upload-artifact@v4
         with:
           name: npcgemini-jar
-          path: build/libs/*.jar
+          path: '**/build/libs/*.jar'
