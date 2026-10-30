@@ -66,3 +66,10 @@ Las capturas de pantalla se envían a Google cuando están activadas. En el plan
 - 100 % cliente (un jugador). La API key nunca se guarda en el mundo ni en el NBT de la entidad.
 - Un solo hilo de peticiones, cooldown y tope diario configurables.
 - El mod decide *cuándo* habla y *qué es verdad* del mundo; Gemini solo decide *cómo* se dice.
+
+## GNPC 2 (beta 1)
+
+Órdenes por chat o menú: `tala un árbol`, `pica hierro`, `tráeme 10 madera`, `dame 5 palos`, `qué llevas`,
+`recoge los objetos`, `sígueme`, `ven aquí`, `detente`, `esta es tu casa`, `ve a casa`, `pelea` / `no pelees`.
+
+Comandos: `/npc list|info|inv|tp|kill|say|spawn|stop|follow|stay`. Ver `CHANGELOG-GNPC2-BETA1.txt`.

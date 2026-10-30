@@ -6,6 +6,7 @@ import com.npcgemini.entity.EntityNPC;
 import com.npcgemini.gemini.GeminiClient;
 import com.npcgemini.profile.BotProfile;
 import com.npcgemini.profile.ProfileManager;
+import com.npcgemini.server.NpcActions;
 import com.npcgemini.task.ActionParser;
 import com.npcgemini.util.ContextBuilder;
 import com.npcgemini.util.ScreenshotHelper;
@@ -63,59 +64,29 @@ public class ChatHandler {
             return;
         }
 
+        // Las órdenes (talar, minar, dame X, sígueme...) se ejecutan en el servidor y no pasan por Gemini.
+        EntityNPC nearNpc = findNearbyNpc(player, botId, 16.0);
+        ActionParser.Result action = ActionParser.parse(text, profile.name);
+        if (action.type != ActionParser.Type.NONE) {
+            EntityNPC target = nearNpc != null ? nearNpc : findNearbyNpc(player, botId, 64.0);
+            if (target == null) {
+                player.sendMessage(new TextComponentString("\u00a77" + profile.name
+                        + " no est\u00e1 lo bastante cerca para obedecer (m\u00e1ximo 64 bloques)."));
+                return;
+            }
+            if (!NpcActions.dispatch(target, action)) {
+                player.sendMessage(new TextComponentString("\u00a7cLas \u00f3rdenes solo funcionan en un mundo de un jugador."));
+            }
+            return;
+        }
+
         if (GeminiClient.isBusy()) {
             player.sendMessage(new TextComponentString("§7" + profile.name + " está escribiendo..."));
             return;
         }
-
-        // Las órdenes de movimiento básicas se ejecutan localmente en el servidor integrado.
-        EntityNPC nearNpc = findNearbyNpc(player, botId, 16.0);
-        ActionParser.Result action = ActionParser.parse(text);
-        if (nearNpc != null) {
-            EntityNPC serverNpc = resolveServerNpc(nearNpc);
-            if (serverNpc != null) {
-                String confirmation = null;
-                if (action.type == ActionParser.Type.FOLLOW || action.type == ActionParser.Type.COME || action.type == ActionParser.Type.STOP) {
-                    int order = action.type == ActionParser.Type.FOLLOW ? EntityNPC.ORDER_FOLLOW
-                            : action.type == ActionParser.Type.COME ? EntityNPC.ORDER_COME : EntityNPC.ORDER_IDLE;
-                    serverNpc.setMovementOrder(player.getUniqueID(), order);
-                    confirmation = action.type == ActionParser.Type.FOLLOW ? "Voy contigo."
-                            : action.type == ActionParser.Type.COME ? "Voy hacia ti." : "Me detengo.";
-                } else if (action.type == ActionParser.Type.DELIVER) {
-                    int n = serverNpc.deliverAllTo(player);
-                    confirmation = "Te entregué " + n + " stacks.";
-                } else if (action.type == ActionParser.Type.DELIVER_ITEM) {
-                    net.minecraft.item.Item item = net.minecraft.item.Item.getByNameOrId(action.itemName.replace(' ', '_'));
-                    int n = serverNpc.giveItemsTo(player, item, 64);
-                    confirmation = item == null ? "No reconozco ese objeto." : "Te entregué " + n + " unidades.";
-                } else if (action.type == ActionParser.Type.COMBAT_ON || action.type == ActionParser.Type.COMBAT_OFF) {
-                    serverNpc.setCombatEnabled(action.type == ActionParser.Type.COMBAT_ON);
-                    confirmation = action.type == ActionParser.Type.COMBAT_ON ? "Te defenderé." : "No atacaré.";
-                } else if (action.type == ActionParser.Type.HOME_SET) {
-                    serverNpc.setHomePosition(serverNpc.getPosition()); confirmation = "Recordaré este lugar como casa.";
-                } else if (action.type == ActionParser.Type.HOME_GO && serverNpc.getHomePosition() != null) {
-                    serverNpc.getNavigator().tryMoveToXYZ(serverNpc.getHomePosition().getX(), serverNpc.getHomePosition().getY(), serverNpc.getHomePosition().getZ(), 1.0D);
-                    confirmation = "Voy a casa.";
-                } else if (action.type == ActionParser.Type.REMEMBER) {
-                    serverNpc.rememberPlace(action.waypoint, serverNpc.getPosition()); confirmation = "Recordaré este lugar como " + action.waypoint + ".";
-                } else if (action.type == ActionParser.Type.GOTO) {
-                    net.minecraft.util.math.BlockPos pos = serverNpc.getRememberedPlace(action.waypoint);
-                    if (pos != null) { serverNpc.getNavigator().tryMoveToXYZ(pos.getX(), pos.getY(), pos.getZ(), 1.0D); confirmation = "Voy a " + action.waypoint + "."; }
-                } else if (action.type == ActionParser.Type.MINE && action.block != null) {
-                    int mined = serverNpc.workOnBlock(action.block, 12); confirmation = mined > 0 ? "He empezado a recoger " + ActionParser.blockName(action.block) + "." : "No veo ese bloque cerca.";
-                } else if (action.type == ActionParser.Type.CHOP) {
-                    int chopped = serverNpc.chopNearbyTree(12); confirmation = chopped > 0 ? "He empezado a talar." : "No veo troncos cerca.";
-                }
-                if (confirmation != null) {
-                    player.sendMessage(new TextComponentString("§d[" + profile.name + "] §f" + confirmation));
-                    if (ModConfig.bubbleEnabled) nearNpc.showBubble(confirmation);
-                    return;
-                }
-            }
-        }
         boolean near = nearNpc != null;
 
-        String context = ContextBuilder.build(player, near);
+        String context = buildContext(player, near, nearNpc);
 
         if (tryCapture && near && profile.capturesEnabled && ModConfig.capturesEnabledDefault) {
             // Capturar en el siguiente tick de render (chat cerrado)
@@ -184,9 +155,19 @@ public class ChatHandler {
             NPCGeminiMod.logger.warn("Captura falló: " + e.getMessage());
         }
 
-        String context = ContextBuilder.build(player, near);
         EntityNPC nearNpc = findNearbyNpc(player, botId, 16.0);
+        String context = buildContext(player, near, nearNpc);
         doAsk(profile, text, context, jpeg, nearNpc);
+    }
+
+    /** Contexto del mundo + estado real del NPC (inventario, tarea) para que Gemini no invente. */
+    private static String buildContext(EntityPlayerSP player, boolean near, EntityNPC nearNpc) {
+        String ctx = ContextBuilder.build(player, near);
+        if (nearNpc != null) {
+            EntityNPC sv = resolveServerNpc(nearNpc);
+            if (sv != null) ctx = ctx + "\n" + NpcActions.stateBlock(sv);
+        }
+        return ctx;
     }
 
     public static EntityNPC findNearbyNpc(EntityPlayerSP player, String profileId, double range) {

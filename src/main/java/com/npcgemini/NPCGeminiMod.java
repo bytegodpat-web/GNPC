@@ -2,6 +2,7 @@ package com.npcgemini;
 
 import com.npcgemini.client.render.RenderNPC;
 import com.npcgemini.command.CommandBot;
+import com.npcgemini.command.CommandNpcAdmin;
 import com.npcgemini.config.ModConfig;
 import com.npcgemini.entity.EntityNPC;
 import com.npcgemini.profile.ProfileManager;
@@ -10,6 +11,7 @@ import net.minecraftforge.fml.client.registry.RenderingRegistry;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
+import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
 import net.minecraftforge.fml.common.registry.EntityRegistry;
 import org.apache.logging.log4j.Logger;
 
@@ -26,7 +28,7 @@ import org.apache.logging.log4j.Logger;
 public class NPCGeminiMod {
     public static final String MODID = "npcgemini";
     public static final String NAME = "Gemini NPC";
-    public static final String VERSION = "2.0.0-alpha";
+    public static final String VERSION = "2.0.0-beta1";
 
     public static Logger logger;
 
@@ -64,5 +66,12 @@ public class NPCGeminiMod {
         if (ModConfig.apiKey == null || ModConfig.apiKey.trim().isEmpty()) {
             logger.warn("[NPCGemini] No hay API key. Edita config/npcgemini.cfg y pon apiKey=TU_CLAVE");
         }
+    }
+
+    /** Comandos de servidor (/npc ...): corren en el servidor integrado, sin hilos cruzados. */
+    @Mod.EventHandler
+    public void serverStarting(FMLServerStartingEvent event) {
+        event.registerServerCommand(new CommandNpcAdmin());
+        logger.info("[NPCGemini] Comando /npc registrado.");
     }
 }

@@ -1,36 +1,43 @@
 package com.npcgemini.entity;
 
+import com.google.common.collect.Multimap;
 import com.npcgemini.profile.BotProfile;
 import com.npcgemini.profile.ProfileManager;
+import com.npcgemini.server.NpcSpeech;
+import com.npcgemini.task.NpcJob;
+import com.npcgemini.util.ItemNames;
+import com.npcgemini.util.ItemQuery;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityCreature;
-import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.SharedMonsterAttributes;
-import net.minecraft.entity.ai.EntityAILookIdle;
-import net.minecraft.entity.ai.EntityAISwimming;
-import net.minecraft.entity.ai.EntityAIBase;
-import java.util.UUID;
-import net.minecraft.entity.ai.EntityAIWatchClosest;
-import net.minecraft.entity.ai.EntityAIAttackMelee;
-import net.minecraft.entity.ai.EntityAINearestAttackableTarget;
+import net.minecraft.entity.ai.*;
+import net.minecraft.entity.ai.attributes.AttributeModifier;
+import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.monster.EntityMob;
-import net.minecraft.init.Items;
-import net.minecraft.init.Blocks;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.block.state.IBlockState;
-import net.minecraft.item.Item;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Blocks;
+import net.minecraft.init.Items;
+import net.minecraft.inventory.EntityEquipmentSlot;
 import net.minecraft.inventory.ItemStackHelper;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.datasync.DataParameter;
 import net.minecraft.network.datasync.DataSerializers;
 import net.minecraft.network.datasync.EntityDataManager;
+import net.minecraft.util.DamageSource;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.NonNullList;
 import net.minecraft.util.math.AxisAlignedBB;
-import java.util.List;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 
+import java.util.*;
+
+/**
+ * NPC de GNPC. Toda la lógica (tareas, combate, inventario) corre en el servidor
+ * (el servidor integrado). El cliente solo dibuja y abre menús.
+ */
 public class EntityNPC extends EntityCreature {
 
     private static final DataParameter<String> PROFILE_ID =
@@ -42,14 +49,25 @@ public class EntityNPC extends EntityCreature {
     public static final int ORDER_IDLE = 0;
     public static final int ORDER_FOLLOW = 1;
     public static final int ORDER_COME = 2;
+
+    /** Daño máximo de cada golpe de respuesta contra un jugador (aviso, no venganza). */
+    public static final float RETALIATION_MAX_DAMAGE = 4.0F;
+
     private UUID ownerUuid;
     private boolean combatEnabled = true;
     private BlockPos homePosition;
-    private final java.util.Map<String, BlockPos> rememberedPlaces = new java.util.HashMap<>();
-    private int workCooldown = 0;
+    private final Map<String, BlockPos> rememberedPlaces = new HashMap<>();
     private int rescueCooldown = 0;
     private int movementOrder = ORDER_IDLE;
     private final NonNullList<ItemStack> inventory = NonNullList.withSize(INV_SIZE, ItemStack.EMPTY);
+
+    private volatile NpcJob job;
+    private int heldSlot = -1;
+    private int heldIdle = 0;
+
+    // Respuesta a golpes del jugador: exactamente dos golpes, sin bucle.
+    private UUID retaliateTarget;
+    private int retaliateLeft = 0, retaliateDelay = 0, retaliateCooldown = 0, retaliateTicks = 0;
 
     // Solo cliente: burbuja de texto
     private String bubbleText = null;
@@ -72,11 +90,14 @@ public class EntityNPC extends EntityCreature {
     @Override
     protected void initEntityAI() {
         this.tasks.addTask(0, new EntityAISwimming(this));
-        this.tasks.addTask(2, new EntityAIFollowOwner(this));
-        this.tasks.addTask(3, new EntityAIAttackMelee(this, 1.15D, true));
-        this.targetTasks.addTask(1, new EntityAINearestAttackableTarget<EntityMob>(this, EntityMob.class, 10, true, false, null));
-        this.tasks.addTask(1, new EntityAIWatchClosest(this, EntityPlayer.class, 8.0F));
-        this.tasks.addTask(2, new EntityAILookIdle(this));
+        this.tasks.addTask(1, new EntityAIAttackMelee(this, 1.2D, true));
+        this.tasks.addTask(2, new EntityAIWork(this));
+        this.tasks.addTask(3, new EntityAIFollowOwner(this));
+        this.tasks.addTask(5, new EntityAIWatchClosest(this, EntityPlayer.class, 8.0F));
+        this.tasks.addTask(6, new EntityAILookIdle(this));
+        this.targetTasks.addTask(1, new EntityAINpcDefend(this));
+        this.targetTasks.addTask(2, new EntityAIHurtByTarget(this, true));
+        this.targetTasks.addTask(3, new EntityAINearestAttackableTarget<EntityMob>(this, EntityMob.class, 3, true, false, e -> true));
     }
 
     @Override
@@ -84,29 +105,34 @@ public class EntityNPC extends EntityCreature {
         super.applyEntityAttributes();
         this.getEntityAttribute(SharedMonsterAttributes.MAX_HEALTH).setBaseValue(20.0D);
         this.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).setBaseValue(0.25D);
+        this.getEntityAttribute(SharedMonsterAttributes.FOLLOW_RANGE).setBaseValue(48.0D);
+        // EntityCreature NO registra el daño de ataque: sin esto la IA de melee fallaba al golpear.
+        this.getAttributeMap().registerAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).setBaseValue(1.0D);
     }
+
+    // ---------------------------------------------------------------- orders
+
+    public void setOwner(UUID owner) { if (!world.isRemote && owner != null) this.ownerUuid = owner; }
 
     /** Asigna al jugador y activa una orden de movimiento (solo servidor). */
     public void setMovementOrder(UUID owner, int order) {
         if (world.isRemote) return;
         this.ownerUuid = owner;
         this.movementOrder = order;
+        if (order != ORDER_IDLE && job != null) cancelJob();
         if (order == ORDER_IDLE) this.getNavigator().clearPath();
     }
 
-    public void setCombatEnabled(boolean enabled) { this.combatEnabled = enabled; }
+    public void setCombatEnabled(boolean enabled) { this.combatEnabled = enabled; if (!enabled) setAttackTarget(null); }
     public boolean isCombatEnabled() { return combatEnabled; }
 
     public void setHomePosition(BlockPos pos) { if (!world.isRemote) homePosition = pos; }
     public BlockPos getHomePosition() { return homePosition; }
-    public void rememberPlace(String name, BlockPos pos) { if (!world.isRemote && name != null && pos != null) rememberedPlaces.put(name.toLowerCase(java.util.Locale.ROOT), pos); }
-    public BlockPos getRememberedPlace(String name) { return rememberedPlaces.get(name == null ? "" : name.toLowerCase(java.util.Locale.ROOT)); }
-    public java.util.Map<String, BlockPos> getRememberedPlaces() { return java.util.Collections.unmodifiableMap(rememberedPlaces); }
+    public void rememberPlace(String name, BlockPos pos) { if (!world.isRemote && name != null && pos != null) rememberedPlaces.put(name.toLowerCase(Locale.ROOT), pos); }
+    public BlockPos getRememberedPlace(String name) { return rememberedPlaces.get(name == null ? "" : name.toLowerCase(Locale.ROOT)); }
+    public Map<String, BlockPos> getRememberedPlaces() { return Collections.unmodifiableMap(rememberedPlaces); }
 
-
-    public int getMovementOrder() {
-        return movementOrder;
-    }
+    public int getMovementOrder() { return movementOrder; }
 
     public EntityPlayer getOwnerPlayer() {
         if (ownerUuid == null || world.isRemote) return null;
@@ -119,9 +145,57 @@ public class EntityNPC extends EntityCreature {
         getNavigator().clearPath();
     }
 
-    public String getProfileId() {
-        return this.dataManager.get(PROFILE_ID);
+    // ---------------------------------------------------------------- jobs
+
+    public NpcJob getJob() { return job; }
+
+    public String getJobDescription() {
+        NpcJob j = job;
+        return j == null ? null : j.describe();
     }
+
+    /** Empieza una tarea nueva; cancela la anterior. Solo servidor. */
+    public void startJob(NpcJob newJob) {
+        if (world.isRemote) return;
+        if (job != null) job.cancel();
+        movementOrder = ORDER_IDLE;
+        getNavigator().clearPath();
+        job = newJob;
+    }
+
+    /** Cancela la tarea actual. Devuelve su descripción o null si no había. */
+    public String cancelJob() {
+        NpcJob j = job;
+        if (j == null) return null;
+        j.cancel();
+        job = null;
+        getNavigator().clearPath();
+        setHeldSlot(-1);
+        return j.describe();
+    }
+
+    public void tickJob() {
+        NpcJob j = job;
+        if (j == null) return;
+        try {
+            j.run();
+        } catch (Throwable t) {
+            com.npcgemini.NPCGeminiMod.logger.error("Error en la tarea '" + j.describe() + "' de " + getName(), t);
+            j.cancel();
+            say("Algo salió mal con la tarea (" + j.describe() + ") y la cancelé.");
+        }
+        if (j.isFinished() && job == j) {
+            job = null;
+            setHeldSlot(-1);
+        }
+    }
+
+    /** Habla al dueño (chat) y sobre la cabeza (burbuja). Solo servidor. */
+    public void say(String text) { NpcSpeech.say(this, text); }
+
+    // ---------------------------------------------------------------- identity
+
+    public String getProfileId() { return this.dataManager.get(PROFILE_ID); }
 
     public void setProfileId(String id) {
         if (id == null || id.isEmpty()) id = "luna";
@@ -129,8 +203,6 @@ public class EntityNPC extends EntityCreature {
         BotProfile p = ProfileManager.get(id);
         if (p != null) {
             setSkinId(p.skinId);
-            // El nombre del perfil también es el nombre visible de la entidad.
-            // setCustomNameTag se guarda automáticamente en el NBT base de Entity.
             if (p.name != null && !p.name.trim().isEmpty()) {
                 setCustomNameTag(p.name.trim());
                 setAlwaysRenderNameTag(true);
@@ -138,19 +210,10 @@ public class EntityNPC extends EntityCreature {
         }
     }
 
-    @Override
-    public boolean getAlwaysRenderNameTag() {
-        return hasCustomName();
-    }
+    @Override public boolean getAlwaysRenderNameTag() { return hasCustomName(); }
+    @Override public boolean getAlwaysRenderNameTagForRender() { return hasCustomName(); }
 
-    @Override
-    public boolean getAlwaysRenderNameTagForRender() {
-        return hasCustomName();
-    }
-
-    public String getSkinId() {
-        return this.dataManager.get(SKIN_ID);
-    }
+    public String getSkinId() { return this.dataManager.get(SKIN_ID); }
 
     public void setSkinId(String id) {
         if (id == null || id.isEmpty()) id = "luna";
@@ -158,8 +221,17 @@ public class EntityNPC extends EntityCreature {
     }
 
     public BotProfile getProfile() {
-        return ProfileManager.getOrCreate(getProfileId());
+        BotProfile p = ProfileManager.get(getProfileId());
+        if (p == null) {
+            p = ProfileManager.getOrCreate(getProfileId());
+            if (hasCustomName()) { p.name = getCustomNameTag(); ProfileManager.save(p); }   // no perder el nombre
+        }
+        return p;
     }
+
+    // ---------------------------------------------------------------- inventory
+
+    public NonNullList<ItemStack> getInventoryList() { return inventory; }
 
     public ItemStack getStackInSlot(int slot) {
         if (slot < 0 || slot >= INV_SIZE) return ItemStack.EMPTY;
@@ -171,111 +243,30 @@ public class EntityNPC extends EntityCreature {
         inventory.set(slot, stack == null || stack.isEmpty() ? ItemStack.EMPTY : stack.copy());
     }
 
-    /** Extrae una cantidad concreta y devuelve una copia independiente del inventario. */
-    public ItemStack extractFromSlot(int slot, int amount) {
-        if (world.isRemote || slot < 0 || slot >= INV_SIZE || amount <= 0) return ItemStack.EMPTY;
-        ItemStack current = inventory.get(slot);
-        if (current.isEmpty()) return ItemStack.EMPTY;
-        int taken = Math.min(amount, current.getCount());
-        ItemStack result = current.copy();
-        result.setCount(taken);
-        current.shrink(taken);
-        if (current.isEmpty()) inventory.set(slot, ItemStack.EMPTY);
-        return result;
+    public int getUsedSlots() {
+        int used = 0;
+        for (ItemStack stack : inventory) if (!stack.isEmpty()) used++;
+        return used;
     }
 
-    /** Pasa todo el inventario del NPC al jugador. Devuelve cuantos stacks se entregaron completos. */
-    public int deliverAllTo(EntityPlayer player) {
-        int delivered = 0;
-        for (int i = 0; i < INV_SIZE; i++) {
-            ItemStack s = inventory.get(i);
-            if (s.isEmpty()) continue;
-            ItemStack copy = s.copy();
-            if (player.inventory.addItemStackToInventory(copy)) {
-                inventory.set(i, ItemStack.EMPTY);
-                delivered++;
-            } else if (copy.getCount() < s.getCount()) {
-                s.setCount(copy.getCount());
-            }
-        }
-        return delivered;
+    public boolean isInventoryFull() {
+        for (ItemStack s : inventory) if (s.isEmpty()) return false;
+        return true;
     }
 
-    /** Solo cliente */
-    public void showBubble(String text) {
-        if (text == null || text.isEmpty()) {
-            bubbleText = null;
-            bubbleUntil = 0;
-            return;
-        }
-        bubbleText = text;
-        int words = text.trim().split("\\s+").length;
-        long duration = 3000L + words * 250L;
-        if (duration > 12000L) duration = 12000L;
-        bubbleUntil = System.currentTimeMillis() + duration;
-    }
-
-    public String getBubbleText() {
-        if (bubbleText == null) return null;
-        if (System.currentTimeMillis() > bubbleUntil) {
-            bubbleText = null;
-            return null;
-        }
-        return bubbleText;
-    }
-
-    public float getBubbleAlpha() {
-        if (bubbleText == null) return 0f;
-        long left = bubbleUntil - System.currentTimeMillis();
-        if (left > 800) return 1f;
-        if (left <= 0) return 0f;
-        return left / 800f;
-    }
-
-    /** Recoge objetos cercanos en el servidor y los almacena respetando los límites de stack. */
-    @Override
-    public void onUpdate() {
-        super.onUpdate();
-        if (world.isRemote || isDead) return;
-        if (workCooldown > 0) workCooldown--;
-        if (rescueCooldown > 0) rescueCooldown--;
-        if (!combatEnabled) setAttackTarget(null);
-        attemptFallRescue();
-        AxisAlignedBB area = getEntityBoundingBox().grow(1.35D, 0.65D, 1.35D);
-        List<EntityItem> drops = world.getEntitiesWithinAABB(EntityItem.class, area);
-        for (EntityItem drop : drops) {
-            if (drop.isDead) continue;
-            ItemStack stack = drop.getItem();
-            if (stack.isEmpty()) continue;
-            int before = stack.getCount();
-            int remaining = insertItem(stack);
-            if (remaining < before) {
-                if (remaining <= 0) drop.setDead();
-                else stack.setCount(remaining);
-                // Pequeña pausa para evitar procesar repetidamente el mismo objeto en el mismo tick.
-                drop.setPickupDelay(2);
-            }
-        }
-    }
-
-    /** Inserta todo lo posible; devuelve la cantidad que no cupo. Solo debe llamarse en servidor. */
+    /** Inserta todo lo posible; devuelve lo que no cupo. Solo servidor. */
     public int insertItem(ItemStack incoming) {
         if (incoming == null || incoming.isEmpty()) return 0;
         ItemStack remaining = incoming.copy();
-        // Primero completar stacks compatibles existentes.
         for (int i = 0; i < INV_SIZE && !remaining.isEmpty(); i++) {
             ItemStack current = inventory.get(i);
             if (!current.isEmpty() && ItemStack.areItemsEqual(current, remaining)
                     && ItemStack.areItemStackTagsEqual(current, remaining)) {
                 int limit = Math.min(current.getMaxStackSize(), 64);
                 int move = Math.min(remaining.getCount(), Math.max(0, limit - current.getCount()));
-                if (move > 0) {
-                    current.grow(move);
-                    remaining.shrink(move);
-                }
+                if (move > 0) { current.grow(move); remaining.shrink(move); }
             }
         }
-        // Después ocupar huecos vacíos.
         for (int i = 0; i < INV_SIZE && !remaining.isEmpty(); i++) {
             if (inventory.get(i).isEmpty()) {
                 int move = Math.min(remaining.getCount(), remaining.getMaxStackSize());
@@ -288,46 +279,287 @@ public class EntityNPC extends EntityCreature {
         return remaining.getCount();
     }
 
-    /** Entrega una cantidad solicitada al jugador, dejando el sobrante en el inventario. */
-    public int giveItemsTo(EntityPlayer player, Item wanted, int amount) {
-        if (world.isRemote || player == null || amount <= 0) return 0;
-        int delivered = 0;
-        for (int i = 0; i < INV_SIZE && delivered < amount; i++) {
-            ItemStack st = inventory.get(i);
-            if (st.isEmpty() || (wanted != null && st.getItem() != wanted)) continue;
-            int n = Math.min(amount - delivered, st.getCount());
-            ItemStack out = st.copy(); out.setCount(n);
-            if (player.inventory.addItemStackToInventory(out)) {
-                st.shrink(n); delivered += n;
-                if (st.isEmpty()) inventory.set(i, ItemStack.EMPTY);
-            }
-        }
-        return delivered;
+    // ----- inventario con cantidades exactas
+
+    public static class ItemCount {
+        public final ItemStack template;
+        public final String name;
+        public int count;
+        ItemCount(ItemStack t, String n, int c) { template = t; name = n; count = c; }
     }
 
-    /** Orden de trabajo simple: localiza y rompe bloques del tipo pedido dentro de un radio seguro. */
-    public int workOnBlock(net.minecraft.block.Block target, int radius) {
-        if (world.isRemote || target == null || workCooldown > 0) return 0;
-        BlockPos origin = getPosition();
-        for (BlockPos pos : BlockPos.getAllInBox(origin.add(-radius, -3, -radius), origin.add(radius, 3, radius))) {
-            IBlockState state = world.getBlockState(pos);
-            if (state.getBlock() != target) continue;
-            if (getDistanceSqToCenter(pos) > (radius * radius)) continue;
-            if (world.destroyBlock(pos, true)) { workCooldown = 12; return 1; }
-        }
-        return 0;
+    private static String keyOf(ItemStack s) {
+        Item it = s.getItem();
+        int meta = it.getHasSubtypes() ? s.getMetadata() : 0;
+        return (it.getRegistryName() == null ? "?" : it.getRegistryName().toString()) + "@" + meta;
     }
 
-    public int chopNearbyTree(int radius) {
-        if (world.isRemote || workCooldown > 0) return 0;
-        BlockPos origin = getPosition();
-        for (BlockPos pos : BlockPos.getAllInBox(origin.add(-radius, -2, -radius), origin.add(radius, 8, radius))) {
-            net.minecraft.block.Block b = world.getBlockState(pos).getBlock();
-            if (b == Blocks.LOG || b == Blocks.LOG2) {
-                if (world.destroyBlock(pos, true)) { workCooldown = 12; return 1; }
+    /** Cantidades exactas por tipo de objeto. */
+    public Map<String, ItemCount> countItems() {
+        Map<String, ItemCount> m = new LinkedHashMap<>();
+        for (int i = 0; i < INV_SIZE; i++) {
+            ItemStack s = inventory.get(i);
+            if (s.isEmpty()) continue;
+            String k = keyOf(s);
+            ItemCount ic = m.get(k);
+            if (ic == null) { ItemStack t = s.copy(); t.setCount(1); m.put(k, new ItemCount(t, ItemNames.name(s), s.getCount())); }
+            else ic.count += s.getCount();
+        }
+        return m;
+    }
+
+    /** Diferencia positiva entre dos inventarios. */
+    public static Map<String, ItemCount> gainMap(Map<String, ItemCount> before, Map<String, ItemCount> after) {
+        Map<String, ItemCount> gain = new LinkedHashMap<>();
+        for (Map.Entry<String, ItemCount> e : after.entrySet()) {
+            int was = before.containsKey(e.getKey()) ? before.get(e.getKey()).count : 0;
+            int diff = e.getValue().count - was;
+            if (diff > 0) gain.put(e.getKey(), new ItemCount(e.getValue().template, e.getValue().name, diff));
+        }
+        return gain;
+    }
+
+    public static String describeGain(Map<String, ItemCount> before, Map<String, ItemCount> after) {
+        StringBuilder sb = new StringBuilder();
+        for (ItemCount ic : gainMap(before, after).values()) {
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(ic.count).append(" × ").append(ic.name);
+        }
+        return sb.toString();
+    }
+
+    /** "Llevo: 12 × Tronco de roble, 5 × Carbón" o "No llevo nada." */
+    public String describeInventory() {
+        Map<String, ItemCount> m = countItems();
+        if (m.isEmpty()) return "No llevo nada.";
+        StringBuilder sb = new StringBuilder("Llevo: ");
+        boolean first = true;
+        for (ItemCount ic : m.values()) {
+            if (!first) sb.append(", ");
+            sb.append(ic.count).append(" × ").append(ic.name);
+            first = false;
+        }
+        return sb.append(" (").append(getUsedSlots()).append("/").append(INV_SIZE).append(" espacios).").toString();
+    }
+
+    /** Cuenta lo que coincide con la consulta. */
+    public int countMatching(ItemQuery q) {
+        int n = 0;
+        for (ItemStack s : inventory) if (q.matches(s)) n += s.getCount();
+        return n;
+    }
+
+    public static class Transfer {
+        public int total = 0;
+        public boolean playerFull = false;
+        public final LinkedHashMap<String, Integer> byName = new LinkedHashMap<>();
+        void add(String name, int n) { total += n; byName.merge(name, n, Integer::sum); }
+        public String describe() {
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, Integer> e : byName.entrySet()) {
+                if (sb.length() > 0) sb.append(", ");
+                sb.append(e.getValue()).append(" × ").append(e.getKey());
+            }
+            return sb.toString();
+        }
+    }
+
+    /**
+     * Entrega al jugador objetos que coincidan con la consulta. amount < 0 = todo lo que coincida.
+     * Corrige el fallo de la alfa anterior: si al jugador solo le cabía una parte, el NPC
+     * seguía conservando todo (objetos duplicados).
+     */
+    public Transfer giveMatching(EntityPlayer player, ItemQuery q, int amount) {
+        Transfer t = new Transfer();
+        if (world.isRemote || player == null) return t;
+        int left = amount < 0 ? Integer.MAX_VALUE : amount;
+        for (int slot = 0; slot < INV_SIZE && left > 0; slot++) {
+            ItemStack st = inventory.get(slot);
+            if (st.isEmpty() || !q.matches(st)) continue;
+            moveToPlayer(player, slot, Math.min(left, st.getCount()), t);
+            left = (amount < 0) ? Integer.MAX_VALUE : amount - t.total;
+            if (t.playerFull) break;
+        }
+        return t;
+    }
+
+    /** Entrega un objeto exacto (mismo item y subtipo que la plantilla). Devuelve cuántos pasó. */
+    public int giveByTemplate(EntityPlayer player, ItemStack template, int amount) {
+        Transfer t = new Transfer();
+        String key = keyOf(template);
+        for (int slot = 0; slot < INV_SIZE && t.total < amount; slot++) {
+            ItemStack st = inventory.get(slot);
+            if (st.isEmpty() || !keyOf(st).equals(key)) continue;
+            moveToPlayer(player, slot, Math.min(amount - t.total, st.getCount()), t);
+            if (t.playerFull) break;
+        }
+        return t.total;
+    }
+
+    private void moveToPlayer(EntityPlayer player, int slot, int n, Transfer t) {
+        ItemStack st = inventory.get(slot);
+        ItemStack out = st.copy();
+        out.setCount(n);
+        String name = ItemNames.name(out);
+        player.inventory.addItemStackToInventory(out);   // deja en 'out' lo que NO cupo
+        int moved = n - out.getCount();
+        if (moved > 0) {
+            st.shrink(moved);
+            if (st.isEmpty()) inventory.set(slot, ItemStack.EMPTY);
+            t.add(name, moved);
+        }
+        if (!out.isEmpty()) t.playerFull = true;
+    }
+
+    /** Entrega todo el inventario. */
+    public Transfer giveAll(EntityPlayer player) {
+        return giveMatching(player, ItemQuery.parse(""), -1);
+    }
+
+    private void dropInventory() {
+        for (int i = 0; i < INV_SIZE; i++) {
+            ItemStack s = inventory.get(i);
+            if (!s.isEmpty()) { entityDropItem(s.copy(), 0.5F); inventory.set(i, ItemStack.EMPTY); }
+        }
+    }
+
+    /** Eliminar con /npc kill: el inventario va al jugador y lo que no quepa cae al suelo. */
+    public void dismiss(EntityPlayer to) {
+        if (world.isRemote) return;
+        cancelJob();
+        if (to != null) giveAll(to);
+        setHeldSlot(-1);
+        dropInventory();
+        NpcRegistryData.remove(world, getUniqueID());
+        setDead();
+    }
+
+    // ---------------------------------------------------------------- tools / combat
+
+    public void setHeldSlot(int slot) {
+        this.heldSlot = (slot >= 0 && slot < INV_SIZE) ? slot : -1;
+        if (heldSlot == -1) setItemStackToSlot(EntityEquipmentSlot.MAINHAND, ItemStack.EMPTY);
+    }
+
+    public void damageTool(int slot) {
+        if (world.isRemote || slot < 0 || slot >= INV_SIZE) return;
+        ItemStack st = inventory.get(slot);
+        if (st.isEmpty() || !st.isItemStackDamageable()) return;
+        st.damageItem(1, this);
+        if (st.isEmpty()) { inventory.set(slot, ItemStack.EMPTY); heldSlot = -1; say("Se me rompió una herramienta."); }
+    }
+
+    private float weaponBonus(ItemStack st) {
+        if (st.isEmpty()) return 0F;
+        Multimap<String, AttributeModifier> mm = st.getAttributeModifiers(EntityEquipmentSlot.MAINHAND);
+        float sum = 0F;
+        for (AttributeModifier m : mm.get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) if (m.getOperation() == 0) sum += (float) m.getAmount();
+        return sum;
+    }
+
+    private int bestWeaponSlot() {
+        int best = -1; float bd = 0.5F;
+        for (int i = 0; i < INV_SIZE; i++) { float d = weaponBonus(inventory.get(i)); if (d > bd) { bd = d; best = i; } }
+        return best;
+    }
+
+    @Override
+    public boolean attackEntityAsMob(Entity target) {
+        int ws = bestWeaponSlot();
+        ItemStack weapon = ws >= 0 ? inventory.get(ws) : ItemStack.EMPTY;
+        float dmg = 1.0F + weaponBonus(weapon);
+        if (target instanceof EntityPlayer) dmg = Math.min(dmg, RETALIATION_MAX_DAMAGE);
+        boolean hit = target.attackEntityFrom(DamageSource.causeMobDamage(this), dmg);
+        if (hit) {
+            swingArm(EnumHand.MAIN_HAND);
+            if (target instanceof net.minecraft.entity.EntityLivingBase) {
+                ((net.minecraft.entity.EntityLivingBase) target).knockBack(this, 0.4F,
+                        net.minecraft.util.math.MathHelper.sin(rotationYaw * 0.017453292F),
+                        -net.minecraft.util.math.MathHelper.cos(rotationYaw * 0.017453292F));
+            }
+            if (ws >= 0) damageTool(ws);
+        }
+        return hit;
+    }
+
+    @Override
+    public void setAttackTarget(net.minecraft.entity.EntityLivingBase target) {
+        // Nunca ataca jugadores por la IA (la respuesta a golpes es aparte y limitada a 2),
+        // ni ataca nada si el combate está desactivado.
+        if (target instanceof EntityPlayer || (!combatEnabled && target != null)) target = null;
+        super.setAttackTarget(target);
+    }
+
+    @Override
+    public boolean attackEntityFrom(DamageSource source, float amount) {
+        boolean hurt = super.attackEntityFrom(source, amount);
+        if (hurt && !world.isRemote && combatEnabled && source.getTrueSource() instanceof EntityPlayer
+                && retaliateLeft == 0 && retaliateCooldown == 0 && isEntityAlive()) {
+            EntityPlayer p = (EntityPlayer) source.getTrueSource();
+            retaliateTarget = p.getUniqueID();
+            retaliateLeft = 2;       // exactamente dos golpes
+            retaliateDelay = 6;
+            retaliateTicks = 0;
+        }
+        return hurt;
+    }
+
+    private void tickRetaliation() {
+        if (retaliateCooldown > 0) retaliateCooldown--;
+        if (retaliateLeft <= 0) return;
+        EntityPlayer p = retaliateTarget == null ? null : world.getPlayerEntityByUUID(retaliateTarget);
+        if (p == null || !p.isEntityAlive() || getDistanceSq(p) > 36.0D || ++retaliateTicks > 80) {
+            retaliateLeft = 0; retaliateCooldown = 60; return;
+        }
+        faceEntity(p, 30.0F, 30.0F);
+        if (--retaliateDelay > 0) return;
+        if (getDistanceSq(p) <= 9.0D) {
+            attackEntityAsMob(p);
+            retaliateLeft--;
+            retaliateDelay = 12;                 // separa los golpes para que el segundo cuente
+            if (retaliateLeft == 0) retaliateCooldown = 60;
+        } else {
+            getNavigator().tryMoveToEntityLiving(p, 1.3D);
+            retaliateDelay = 4;
+        }
+    }
+
+    // ---------------------------------------------------------------- tick
+
+    @Override
+    public void onUpdate() {
+        super.onUpdate();
+        if (world.isRemote || isDead) return;
+
+        if (rescueCooldown > 0) rescueCooldown--;
+        if (!combatEnabled) setAttackTarget(null);
+        tickRetaliation();
+        attemptFallRescue();
+
+        if (ticksExisted % 100 == 1) NpcRegistryData.touch(this);
+        if (ticksExisted % 80 == 0 && getHealth() < getMaxHealth()) heal(1.0F);
+
+        // Objeto en mano (solo visual: es la misma referencia del inventario, no se guarda en NBT)
+        if (getAttackTarget() != null && isEntityAlive()) { int ws = bestWeaponSlot(); if (ws >= 0) heldSlot = ws; heldIdle = 0; }
+        else if (job == null) { if (heldSlot >= 0 && ++heldIdle > 40) { heldSlot = -1; heldIdle = 0; } }
+        else heldIdle = 0;
+        ItemStack want = heldSlot >= 0 ? inventory.get(heldSlot) : ItemStack.EMPTY;
+        if (getHeldItemMainhand() != want) setItemStackToSlot(EntityEquipmentSlot.MAINHAND, want);
+
+        // Recoger objetos cercanos
+        AxisAlignedBB area = getEntityBoundingBox().grow(1.35D, 0.65D, 1.35D);
+        List<EntityItem> drops = world.getEntitiesWithinAABB(EntityItem.class, area);
+        for (EntityItem drop : drops) {
+            if (drop.isDead) continue;
+            ItemStack stack = drop.getItem();
+            if (stack.isEmpty()) continue;
+            int before = stack.getCount();
+            int remaining = insertItem(stack);
+            if (remaining < before) {
+                if (remaining <= 0) drop.setDead();
+                else stack.setCount(remaining);
             }
         }
-        return 0;
     }
 
     /** Intenta reducir daño de caída con agua/heno/telaraña si lleva el recurso. */
@@ -354,11 +586,50 @@ public class EntityNPC extends EntityCreature {
         }
     }
 
-    public int getUsedSlots() {
-        int used = 0;
-        for (ItemStack stack : inventory) if (!stack.isEmpty()) used++;
-        return used;
+    // ---------------------------------------------------------------- death
+
+    @Override
+    public void onDeath(DamageSource cause) {
+        if (!world.isRemote) {
+            cancelJob();
+            setItemStackToSlot(EntityEquipmentSlot.MAINHAND, ItemStack.EMPTY);
+            dropInventory();   // antes el inventario se perdía al morir
+            NpcRegistryData.remove(world, getUniqueID());
+        }
+        super.onDeath(cause);
     }
+
+    @Override
+    protected void dropEquipment(boolean wasRecentlyHit, int lootingModifier) {
+        // La mano es una referencia al inventario: ya se soltó en onDeath, no duplicar.
+    }
+
+    // ---------------------------------------------------------------- bubble (cliente)
+
+    public void showBubble(String text) {
+        if (text == null || text.isEmpty()) { bubbleText = null; bubbleUntil = 0; return; }
+        bubbleText = text;
+        int words = text.trim().split("\\s+").length;
+        long duration = 3000L + words * 250L;
+        if (duration > 12000L) duration = 12000L;
+        bubbleUntil = System.currentTimeMillis() + duration;
+    }
+
+    public String getBubbleText() {
+        if (bubbleText == null) return null;
+        if (System.currentTimeMillis() > bubbleUntil) { bubbleText = null; return null; }
+        return bubbleText;
+    }
+
+    public float getBubbleAlpha() {
+        if (bubbleText == null) return 0f;
+        long left = bubbleUntil - System.currentTimeMillis();
+        if (left > 800) return 1f;
+        if (left <= 0) return 0f;
+        return left / 800f;
+    }
+
+    // ---------------------------------------------------------------- interaction / NBT
 
     @Override
     public boolean processInteract(EntityPlayer player, EnumHand hand) {
@@ -373,6 +644,7 @@ public class EntityNPC extends EntityCreature {
     @Override
     public void writeEntityToNBT(NBTTagCompound compound) {
         super.writeEntityToNBT(compound);
+        compound.removeTag("HandItems");   // la mano es solo visual; evita duplicar la herramienta
         compound.setString("ProfileId", getProfileId());
         compound.setString("SkinId", getSkinId());
         compound.setInteger("MovementOrder", movementOrder);
@@ -381,35 +653,27 @@ public class EntityNPC extends EntityCreature {
         compound.setBoolean("CombatEnabled", combatEnabled);
         if (homePosition != null) compound.setLong("HomePos", homePosition.toLong());
         NBTTagCompound places = new NBTTagCompound();
-        for (java.util.Map.Entry<String, BlockPos> e : rememberedPlaces.entrySet()) places.setLong(e.getKey(), e.getValue().toLong());
+        for (Map.Entry<String, BlockPos> e : rememberedPlaces.entrySet()) places.setLong(e.getKey(), e.getValue().toLong());
         compound.setTag("RememberedPlaces", places);
     }
 
     @Override
     public void readEntityFromNBT(NBTTagCompound compound) {
         super.readEntityFromNBT(compound);
-        if (compound.hasKey("ProfileId")) {
-            setProfileId(compound.getString("ProfileId"));
-        }
-        if (compound.hasKey("SkinId")) {
-            setSkinId(compound.getString("SkinId"));
-        }
+        if (compound.hasKey("ProfileId")) setProfileId(compound.getString("ProfileId"));
+        if (compound.hasKey("SkinId")) setSkinId(compound.getString("SkinId"));
         movementOrder = compound.getInteger("MovementOrder");
         ownerUuid = compound.hasUniqueId("OwnerUUID") ? compound.getUniqueId("OwnerUUID") : null;
         ItemStackHelper.loadAllItems(compound, inventory);
         combatEnabled = !compound.hasKey("CombatEnabled") || compound.getBoolean("CombatEnabled");
         homePosition = compound.hasKey("HomePos") ? BlockPos.fromLong(compound.getLong("HomePos")) : null;
         rememberedPlaces.clear();
-        if (compound.hasKey("RememberedPlaces")) { NBTTagCompound places = compound.getCompoundTag("RememberedPlaces"); for (String key : places.getKeySet()) rememberedPlaces.put(key, BlockPos.fromLong(places.getLong(key))); }
+        if (compound.hasKey("RememberedPlaces")) {
+            NBTTagCompound places = compound.getCompoundTag("RememberedPlaces");
+            for (String key : places.getKeySet()) rememberedPlaces.put(key, BlockPos.fromLong(places.getLong(key)));
+        }
     }
 
-    @Override
-    public boolean canBePushed() {
-        return false;
-    }
-
-    @Override
-    protected boolean canDespawn() {
-        return false;
-    }
+    @Override public boolean canBePushed() { return false; }
+    @Override protected boolean canDespawn() { return false; }
 }
