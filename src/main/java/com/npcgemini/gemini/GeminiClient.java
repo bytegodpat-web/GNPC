@@ -22,7 +22,6 @@ import java.util.function.Consumer;
 
 /**
  * Cliente HTTP para la API de Gemini (Google AI Studio).
- * Usa HttpURLConnection (Java 8) en un hilo aparte.
  */
 public class GeminiClient {
 
@@ -38,28 +37,18 @@ public class GeminiClient {
         return busy;
     }
 
-    /**
-     * Envía un mensaje al modelo y devuelve la respuesta por callback en el hilo del juego.
-     *
-     * @param profile   perfil del bot
-     * @param userText  texto del jugador (o evento)
-     * @param context   bloque [CONTEXTO: ...] opcional
-     * @param jpegBytes captura JPEG opcional (null si no hay)
-     * @param onSuccess callback con la respuesta limpia
-     * @param onError   callback con mensaje de error legible
-     */
     public static void ask(BotProfile profile, String userText, String context,
                            byte[] jpegBytes, Consumer<String> onSuccess, Consumer<String> onError) {
 
         if (busy) {
-            schedule(onError, "El bot ya está pensando. Espera un momento.");
+            schedule(onError, "El bot ya esta pensando. Espera un momento.");
             return;
         }
         if (!ModConfig.canRequest()) {
             if (ModConfig.apiKey == null || ModConfig.apiKey.trim().isEmpty()) {
-                schedule(onError, "No hay API key. Configúrala en config/npcgemini.cfg (apiKey=...).");
+                schedule(onError, "No hay API key. Configurala en config/npcgemini.cfg");
             } else {
-                schedule(onError, "Límite de peticiones alcanzado o cooldown activo. Intenta más tarde.");
+                schedule(onError, "Limite de peticiones o cooldown activo.");
             }
             return;
         }
@@ -70,7 +59,11 @@ public class GeminiClient {
                 String response = callApi(profile, userText, context, jpegBytes);
                 ModConfig.recordRequest();
                 String cleaned = cleanResponse(response);
-                schedule(onSuccess, cleaned);
+                if (cleaned.isEmpty()) {
+                    schedule(onError, "Respuesta vacia del modelo.");
+                } else {
+                    schedule(onSuccess, cleaned);
+                }
             } catch (Exception e) {
                 NPCGeminiMod.logger.warn("Error Gemini: " + e.getMessage());
                 schedule(onError, friendlyError(e));
@@ -81,9 +74,10 @@ public class GeminiClient {
     }
 
     private static String callApi(BotProfile profile, String userText, String context, byte[] jpegBytes) throws Exception {
-        String model = ModConfig.model;
+        String model = ModConfig.model == null ? "gemini-3.5-flash" : ModConfig.model.trim();
+        // URL sin key en query; key va en header (recomendado por Google)
         String urlStr = "https://generativelanguage.googleapis.com/v1beta/models/"
-                + model + ":generateContent?key=" + ModConfig.apiKey.trim();
+                + model + ":generateContent";
 
         JsonObject body = new JsonObject();
 
@@ -96,16 +90,13 @@ public class GeminiClient {
         sys.add("parts", sysParts);
         body.add("systemInstruction", sys);
 
-        // contents: historial + mensaje actual
         JsonArray contents = new JsonArray();
 
-        // Historial (solo texto)
+        // Historial
         List<String> hist = profile.history;
         for (int i = 0; i + 1 < hist.size(); i += 2) {
-            String pMsg = hist.get(i);
-            String bMsg = hist.get(i + 1);
-            contents.add(makeContent("user", stripPrefix(pMsg)));
-            contents.add(makeContent("model", stripPrefix(bMsg)));
+            contents.add(makeContent("user", stripPrefix(hist.get(i))));
+            contents.add(makeContent("model", stripPrefix(hist.get(i + 1))));
         }
 
         // Mensaje actual
@@ -136,20 +127,21 @@ public class GeminiClient {
         contents.add(userContent);
         body.add("contents", contents);
 
-        // generationConfig
         JsonObject gen = new JsonObject();
         gen.addProperty("temperature", 0.8);
         gen.addProperty("maxOutputTokens", 256);
         body.add("generationConfig", gen);
 
         String jsonBody = body.toString();
+        String key = ModConfig.apiKey.trim();
 
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        conn.setRequestProperty("x-goog-api-key", key);
         conn.setConnectTimeout(10000);
-        conn.setReadTimeout(20000);
+        conn.setReadTimeout(25000);
         conn.setDoOutput(true);
 
         try (OutputStream os = conn.getOutputStream()) {
@@ -161,8 +153,9 @@ public class GeminiClient {
         if (code >= 200 && code < 300) {
             reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
         } else {
-            reader = new BufferedReader(new InputStreamReader(conn.getErrorStream() != null
-                    ? conn.getErrorStream() : conn.getInputStream(), StandardCharsets.UTF_8));
+            reader = new BufferedReader(new InputStreamReader(
+                    conn.getErrorStream() != null ? conn.getErrorStream() : conn.getInputStream(),
+                    StandardCharsets.UTF_8));
         }
 
         StringBuilder sb = new StringBuilder();
@@ -175,7 +168,9 @@ public class GeminiClient {
 
         String resp = sb.toString();
         if (code < 200 || code >= 300) {
-            throw new ApiException(code, resp);
+            NPCGeminiMod.logger.warn("Gemini HTTP " + code + " model=" + model + " body=" +
+                    (resp.length() > 300 ? resp.substring(0, 300) : resp));
+            throw new ApiException(code, resp, model);
         }
 
         return extractText(resp);
@@ -205,7 +200,7 @@ public class GeminiClient {
             JsonArray candidates = root.getAsJsonArray("candidates");
             if (candidates == null || candidates.size() == 0) {
                 if (root.has("promptFeedback")) {
-                    return "(El modelo no generó respuesta; posible filtro de seguridad.)";
+                    return "(Filtro de seguridad del modelo.)";
                 }
                 return "";
             }
@@ -223,12 +218,10 @@ public class GeminiClient {
     private static String cleanResponse(String raw) {
         if (raw == null) return "";
         String s = raw.trim();
-        // Quitar markdown residual
         s = s.replaceAll("\\*\\*", "");
         s = s.replaceAll("\\*", "");
         s = s.replaceAll("`", "");
         s = s.replaceAll("#{1,6}\\s*", "");
-        // Cortar si es demasiado largo
         if (s.length() > 400) {
             s = s.substring(0, 397) + "...";
         }
@@ -238,16 +231,25 @@ public class GeminiClient {
     private static String friendlyError(Exception e) {
         if (e instanceof ApiException) {
             ApiException ae = (ApiException) e;
-            if (ae.code == 429) return "Cuota de la API agotada (429). Espera o revisa tu plan.";
-            if (ae.code == 403) return "Clave inválida o región no permitida (403).";
-            if (ae.code == 400) return "Petición inválida (400). Revisa el modelo en la config.";
+            if (ae.code == 404) {
+                return "Modelo no encontrado (404): '" + ae.model
+                        + "'. Cambia S:model en config/npcgemini.cfg "
+                        + "(prueba gemini-3.5-flash o gemini-2.5-flash).";
+            }
+            if (ae.code == 429) return "Cuota agotada (429). Espera o revisa tu plan.";
+            if (ae.code == 403) return "Clave invalida o region bloqueada (403).";
+            if (ae.code == 400) {
+                String hint = "";
+                if (ae.body != null && ae.body.contains("API key")) hint = " Revisa la API key.";
+                return "Peticion invalida (400)." + hint;
+            }
             return "Error de API (" + ae.code + ").";
         }
         String msg = e.getMessage();
         if (msg != null && msg.toLowerCase().contains("timeout")) {
-            return "La API no respondió a tiempo.";
+            return "La API no respondio a tiempo.";
         }
-        return "Error de red o de la API. Revisa la conexión y la clave.";
+        return "Error de red o de la API.";
     }
 
     private static void schedule(Consumer<String> cb, String msg) {
@@ -258,9 +260,13 @@ public class GeminiClient {
 
     private static class ApiException extends Exception {
         final int code;
-        ApiException(int code, String body) {
-            super("HTTP " + code + ": " + (body != null && body.length() > 200 ? body.substring(0, 200) : body));
+        final String body;
+        final String model;
+        ApiException(int code, String body, String model) {
+            super("HTTP " + code + " model=" + model);
             this.code = code;
+            this.body = body;
+            this.model = model;
         }
     }
 }
