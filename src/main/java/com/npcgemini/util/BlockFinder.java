@@ -6,6 +6,8 @@ import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.init.Blocks;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.RayTraceResult;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 
 /**
@@ -65,12 +67,16 @@ public class BlockFinder {
     }
 
     public static BlockPos lookingAt(EntityLivingBase entity, int reach) {
-        // simple ray: step forward
-        net.minecraft.util.math.Vec3d start = entity.getPositionEyes(1.0F);
-        net.minecraft.util.math.Vec3d look = entity.getLook(1.0F);
-        net.minecraft.util.math.Vec3d end = start.addVector(look.x * reach, look.y * reach, look.z * reach);
-        net.minecraft.util.math.RayTraceResult rt = entity.world.rayTraceBlocks(start, end, false, false, true);
-        if (rt != null && rt.typeOfHit == net.minecraft.util.math.RayTraceResult.Type.BLOCK) {
+        Vec3d start = entity.getPositionEyes(1.0F);
+        Vec3d look = entity.getLook(1.0F);
+        // 1.12 mapping: sin addVector; construir el punto final a mano
+        Vec3d end = new Vec3d(
+                start.x + look.x * reach,
+                start.y + look.y * reach,
+                start.z + look.z * reach
+        );
+        RayTraceResult rt = entity.world.rayTraceBlocks(start, end, false, false, true);
+        if (rt != null && rt.typeOfHit == RayTraceResult.Type.BLOCK) {
             return rt.getBlockPos();
         }
         return null;
@@ -79,7 +85,6 @@ public class BlockFinder {
     private static boolean matches(Block b, Block target) {
         if (target == null) return false;
         if (b == target) return true;
-        // lit redstone ore
         if (target == Blocks.REDSTONE_ORE && b == Blocks.LIT_REDSTONE_ORE) return true;
         return false;
     }
