@@ -244,7 +244,7 @@ public class EntityNPC extends EntityCreature {
         AxisAlignedBB area = getEntityBoundingBox().grow(1.35D, 0.65D, 1.35D);
         List<EntityItem> drops = world.getEntitiesWithinAABB(EntityItem.class, area);
         for (EntityItem drop : drops) {
-            if (drop.isDead || drop.delayBeforeCanPickup > 0) continue;
+            if (drop.isDead) continue;
             ItemStack stack = drop.getItem();
             if (stack.isEmpty()) continue;
             int before = stack.getCount();
