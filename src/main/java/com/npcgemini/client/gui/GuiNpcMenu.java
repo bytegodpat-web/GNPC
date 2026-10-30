@@ -26,6 +26,7 @@ public class GuiNpcMenu extends GuiScreen {
     private GuiTextField fieldStyle;
     private GuiTextField fieldLang;
     private GuiTextField fieldLength;
+    private GuiTextField fieldSkin;
     private GuiButton btnCaptures;
     private GuiButton btnSave;
     private GuiButton btnClose;
@@ -77,6 +78,11 @@ public class GuiNpcMenu extends GuiScreen {
         fieldLength = new GuiTextField(6, fontRenderer, cx + 4, y, fw / 2 - 4, 18);
         fieldLength.setMaxStringLength(4);
         fieldLength.setText(profile.responseLength);
+        y += 28;
+
+        fieldSkin = new GuiTextField(7, fontRenderer, cx - fw / 2, y, fw, 18);
+        fieldSkin.setMaxStringLength(40);
+        fieldSkin.setText(profile.skinId != null ? profile.skinId : "luna");
         y += 32;
 
         btnCaptures = new GuiButton(10, cx - fw / 2, y, fw, 20,
@@ -117,8 +123,15 @@ public class GuiNpcMenu extends GuiScreen {
         profile.language = fieldLang.getText().trim().isEmpty() ? "español" : fieldLang.getText().trim();
         profile.responseLength = fieldLength.getText().trim().isEmpty() ? "2" : fieldLength.getText().trim();
         profile.capturesEnabled = captures;
+        String skin = fieldSkin.getText().trim();
+        if (!skin.isEmpty()) {
+            profile.skinId = skin.replace(".png", "");
+        }
         ProfileManager.save(profile);
         npc.setProfileId(profile.id);
+        npc.setSkinId(profile.skinId);
+        npc.applyNameFromProfile(profile);
+        com.npcgemini.client.SkinManager.reload();
     }
 
     @Override
@@ -134,6 +147,7 @@ public class GuiNpcMenu extends GuiScreen {
         fieldStyle.textboxKeyTyped(typedChar, keyCode);
         fieldLang.textboxKeyTyped(typedChar, keyCode);
         fieldLength.textboxKeyTyped(typedChar, keyCode);
+        fieldSkin.textboxKeyTyped(typedChar, keyCode);
         super.keyTyped(typedChar, keyCode);
     }
 
@@ -146,6 +160,7 @@ public class GuiNpcMenu extends GuiScreen {
         fieldStyle.mouseClicked(mouseX, mouseY, mouseButton);
         fieldLang.mouseClicked(mouseX, mouseY, mouseButton);
         fieldLength.mouseClicked(mouseX, mouseY, mouseButton);
+        fieldSkin.mouseClicked(mouseX, mouseY, mouseButton);
         super.mouseClicked(mouseX, mouseY, mouseButton);
     }
 
@@ -176,6 +191,9 @@ public class GuiNpcMenu extends GuiScreen {
         fieldLang.drawTextBox();
         fontRenderer.drawString("Frases", cx + 4 + 60, y + 5, 0xAAAAAA);
         fieldLength.drawTextBox();
+        y += 28;
+        fontRenderer.drawString("Skin ID", lx - 50, y + 5, 0xAAAAAA);
+        fieldSkin.drawTextBox();
 
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
