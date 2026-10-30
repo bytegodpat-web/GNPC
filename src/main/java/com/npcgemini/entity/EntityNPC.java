@@ -244,7 +244,7 @@ public class EntityNPC extends EntityCreature {
         AxisAlignedBB area = getEntityBoundingBox().grow(1.35D, 0.65D, 1.35D);
         List<EntityItem> drops = world.getEntitiesWithinAABB(EntityItem.class, area);
         for (EntityItem drop : drops) {
-            if (drop.isDead || drop.getPickupDelay() > 0) continue;
+            if (drop.isDead || drop.delayBeforeCanPickup > 0) continue;
             ItemStack stack = drop.getItem();
             if (stack.isEmpty()) continue;
             int before = stack.getCount();
@@ -313,7 +313,7 @@ public class EntityNPC extends EntityCreature {
             IBlockState state = world.getBlockState(pos);
             if (state.getBlock() != target) continue;
             if (getDistanceSqToCenter(pos) > (radius * radius)) continue;
-            if (world.destroyBlock(pos, true, this)) { workCooldown = 12; return 1; }
+            if (world.destroyBlock(pos, true)) { workCooldown = 12; return 1; }
         }
         return 0;
     }
@@ -324,7 +324,7 @@ public class EntityNPC extends EntityCreature {
         for (BlockPos pos : BlockPos.getAllInBox(origin.add(-radius, -2, -radius), origin.add(radius, 8, radius))) {
             net.minecraft.block.Block b = world.getBlockState(pos).getBlock();
             if (b == Blocks.LOG || b == Blocks.LOG2) {
-                if (world.destroyBlock(pos, true, this)) { workCooldown = 12; return 1; }
+                if (world.destroyBlock(pos, true)) { workCooldown = 12; return 1; }
             }
         }
         return 0;
