@@ -44,7 +44,7 @@ public class RenderNPC extends RenderLivingBase<EntityNPC> {
     protected ResourceLocation getEntityTexture(EntityNPC entity) {
         String skinId = entity.getSkinId();
         if (skinId == null || skinId.isEmpty()) skinId = "luna";
-        return new ResourceLocation(NPCGeminiMod.MODID, "textures/entity/npc/" + skinId + ".png");
+        return com.npcgemini.client.SkinManager.getTexture(skinId);
     }
 
     @Override

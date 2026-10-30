@@ -10,6 +10,9 @@ import com.npcgemini.util.ContextBuilder;
 import com.npcgemini.util.ScreenshotHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
+import net.minecraft.entity.Entity;
+import net.minecraft.server.integrated.IntegratedServer;
+import net.minecraft.world.WorldServer;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.text.TextComponentString;
 import net.minecraftforge.client.event.ClientChatEvent;
@@ -157,6 +160,17 @@ public class ChatHandler {
             }
         }
         return best;
+    }
+
+    /** Busca en el servidor integrado la entidad que corresponde a la del cliente (mismo id). */
+    public static EntityNPC resolveServerNpc(EntityNPC clientNpc) {
+        if (clientNpc == null) return null;
+        IntegratedServer server = Minecraft.getMinecraft().getIntegratedServer();
+        if (server == null) return null;
+        WorldServer ws = server.getWorld(clientNpc.dimension);
+        if (ws == null) return null;
+        Entity e = ws.getEntityByID(clientNpc.getEntityId());
+        return (e instanceof EntityNPC) ? (EntityNPC) e : null;
     }
 
     public static void sendSpontaneous(BotProfile profile, EntityNPC npc) {

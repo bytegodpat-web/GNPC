@@ -8,11 +8,14 @@ import net.minecraft.entity.ai.EntityAILookIdle;
 import net.minecraft.entity.ai.EntityAISwimming;
 import net.minecraft.entity.ai.EntityAIWatchClosest;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.inventory.ItemStackHelper;
+import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.datasync.DataParameter;
 import net.minecraft.network.datasync.DataSerializers;
 import net.minecraft.network.datasync.EntityDataManager;
 import net.minecraft.util.EnumHand;
+import net.minecraft.util.NonNullList;
 import net.minecraft.world.World;
 
 public class EntityNPC extends EntityCreature {
@@ -21,6 +24,9 @@ public class EntityNPC extends EntityCreature {
             EntityDataManager.createKey(EntityNPC.class, DataSerializers.STRING);
     private static final DataParameter<String> SKIN_ID =
             EntityDataManager.createKey(EntityNPC.class, DataSerializers.STRING);
+
+    public static final int INV_SIZE = 27;
+    private final NonNullList<ItemStack> inventory = NonNullList.withSize(INV_SIZE, ItemStack.EMPTY);
 
     // Solo cliente: burbuja de texto
     private String bubbleText = null;
@@ -80,6 +86,33 @@ public class EntityNPC extends EntityCreature {
         return ProfileManager.getOrCreate(getProfileId());
     }
 
+    public ItemStack getStackInSlot(int slot) {
+        if (slot < 0 || slot >= INV_SIZE) return ItemStack.EMPTY;
+        return inventory.get(slot);
+    }
+
+    public void setStackInSlot(int slot, ItemStack stack) {
+        if (slot < 0 || slot >= INV_SIZE) return;
+        inventory.set(slot, stack == null ? ItemStack.EMPTY : stack);
+    }
+
+    /** Pasa todo el inventario del NPC al jugador. Devuelve cuantos stacks se entregaron completos. */
+    public int deliverAllTo(EntityPlayer player) {
+        int delivered = 0;
+        for (int i = 0; i < INV_SIZE; i++) {
+            ItemStack s = inventory.get(i);
+            if (s.isEmpty()) continue;
+            ItemStack copy = s.copy();
+            if (player.inventory.addItemStackToInventory(copy)) {
+                inventory.set(i, ItemStack.EMPTY);
+                delivered++;
+            } else if (copy.getCount() < s.getCount()) {
+                s.setCount(copy.getCount());
+            }
+        }
+        return delivered;
+    }
+
     /** Solo cliente */
     public void showBubble(String text) {
         if (text == null || text.isEmpty()) {
@@ -136,6 +169,7 @@ public class EntityNPC extends EntityCreature {
         super.writeEntityToNBT(compound);
         compound.setString("ProfileId", getProfileId());
         compound.setString("SkinId", getSkinId());
+        ItemStackHelper.saveAllItems(compound, inventory);
     }
 
     @Override
@@ -147,6 +181,7 @@ public class EntityNPC extends EntityCreature {
         if (compound.hasKey("SkinId")) {
             setSkinId(compound.getString("SkinId"));
         }
+        ItemStackHelper.loadAllItems(compound, inventory);
     }
 
     @Override

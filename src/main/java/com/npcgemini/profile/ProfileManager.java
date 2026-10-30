@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.npcgemini.NPCGeminiMod;
 import com.npcgemini.config.ModConfig;
-import net.minecraft.client.Minecraft;
 
 import java.io.File;
 import java.io.FileReader;
@@ -21,9 +20,18 @@ public class ProfileManager {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Map<String, BotProfile> CACHE = new ConcurrentHashMap<>();
     private static File profilesDir;
+    private static File configRoot;
+
+    /** Carpeta config/npcgemini (perfiles y skins). */
+    public static File getConfigRoot() {
+        if (configRoot == null) {
+            configRoot = new File(ModConfig.getConfigDir(), NPCGeminiMod.MODID);
+        }
+        return configRoot;
+    }
 
     public static void init() {
-        File configDir = new File(Minecraft.getMinecraft().mcDataDir, "config/" + NPCGeminiMod.MODID);
+        File configDir = getConfigRoot();
         profilesDir = new File(configDir, "profiles");
         if (!profilesDir.exists()) {
             profilesDir.mkdirs();

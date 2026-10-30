@@ -86,6 +86,40 @@ public class SkinManager {
                 img.setRGB(x, y, old.getRGB(x, y));
             }
         }
+        // Piernas y brazos izquierdos: copia espejada de los derechos
+        flip(img, 4, 16, 16, 32, 4, 4);
+        flip(img, 8, 16, 16, 32, 4, 4);
+        flip(img, 0, 20, 24, 32, 4, 12);
+        flip(img, 4, 20, 16, 32, 4, 12);
+        flip(img, 8, 20, 8, 32, 4, 12);
+        flip(img, 12, 20, 16, 32, 4, 12);
+        flip(img, 44, 16, -8, 32, 4, 4);
+        flip(img, 48, 16, -8, 32, 4, 4);
+        flip(img, 40, 20, 0, 32, 4, 12);
+        flip(img, 44, 20, -8, 32, 4, 12);
+        flip(img, 48, 20, -16, 32, 4, 12);
+        flip(img, 52, 20, -8, 32, 4, 12);
+        // La capa base debe ser opaca (cabeza y cuerpo)
+        opaque(img, 0, 0, 32, 16);
+        opaque(img, 0, 16, 64, 32);
+        opaque(img, 16, 48, 48, 64);
         return img;
+    }
+
+    /** Copia el bloque (x,y,w,h) a (x+dx, y+dy) invertido horizontalmente. */
+    private static void flip(BufferedImage img, int x, int y, int dx, int dy, int w, int h) {
+        for (int i = 0; i < w; i++) {
+            for (int j = 0; j < h; j++) {
+                img.setRGB(x + dx + (w - 1 - i), y + dy + j, img.getRGB(x + i, y + j));
+            }
+        }
+    }
+
+    private static void opaque(BufferedImage img, int x0, int y0, int x1, int y1) {
+        for (int y = y0; y < y1; y++) {
+            for (int x = x0; x < x1; x++) {
+                img.setRGB(x, y, img.getRGB(x, y) | 0xFF000000);
+            }
+        }
     }
 }

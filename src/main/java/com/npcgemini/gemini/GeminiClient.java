@@ -139,7 +139,7 @@ public class GeminiClient {
         // generationConfig
         JsonObject gen = new JsonObject();
         gen.addProperty("temperature", 0.8);
-        gen.addProperty("maxOutputTokens", 256);
+        gen.addProperty("maxOutputTokens", 1024);
         body.add("generationConfig", gen);
 
         String jsonBody = body.toString();
