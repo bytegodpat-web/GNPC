@@ -16,7 +16,7 @@ public class BotProfile {
     public String attitude = "te considera un amigo de confianza";
     public String speechStyle = "informal y cercano";
     public String language = "español";
-    public String responseLength = "8"; // frases aprox.; subir en el menu si quieres mas
+    public String responseLength = "2"; // número de frases aprox.
     public String skinId = "luna";
     public boolean slimArms = true;
     public boolean capturesEnabled = true;
@@ -69,8 +69,7 @@ public class BotProfile {
                 + "- [EVENTO: alerta]: el contexto indica un peligro real. Avísalo en una frase corta y en personaje.\n"
                 + "- No repitas palabras o preguntas que ya dijiste antes.\n\n"
                 + "REGLAS DE RESPUESTA\n"
-                + "- Longitud orientativa: unas " + responseLength + " frases. Si piden detalle, puedes escribir mas.
-"
+                + "- Máximo " + responseLength + " frases, salvo que te pidan algo largo.\n"
                 + "- Sin emojis ni formato (sin negritas, listas ni asteriscos). Es texto de chat de Minecraft.\n"
                 + "- Mantén la personalidad siempre.\n"
                 + "- Recuerda lo que se ha hablado antes en la conversación.";

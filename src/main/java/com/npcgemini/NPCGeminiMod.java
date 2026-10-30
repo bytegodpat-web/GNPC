@@ -26,7 +26,7 @@ import org.apache.logging.log4j.Logger;
 public class NPCGeminiMod {
     public static final String MODID = "npcgemini";
     public static final String NAME = "Gemini NPC";
-    public static final String VERSION = "0.3.0";
+    public static final String VERSION = "0.2.0";
 
     public static Logger logger;
 
@@ -37,8 +37,6 @@ public class NPCGeminiMod {
     public void preInit(FMLPreInitializationEvent event) {
         logger = event.getModLog();
         ModConfig.init(event.getModConfigurationDirectory());
-        // Pasar el mismo directorio de config (sin depender de Minecraft.mcDataDir)
-        ProfileManager.init(event.getModConfigurationDirectory());
 
         EntityRegistry.registerModEntity(
             new ResourceLocation(MODID, "gemini_npc"),
@@ -60,8 +58,9 @@ public class NPCGeminiMod {
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
+        ProfileManager.init();
         CommandBot.register();
-        logger.info("[NPCGemini] Init: comandos /bot y /botchat listos.");
+        logger.info("[NPCGemini] Init: perfiles, comandos /bot y /botchat listos.");
         if (ModConfig.apiKey == null || ModConfig.apiKey.trim().isEmpty()) {
             logger.warn("[NPCGemini] No hay API key. Edita config/npcgemini.cfg y pon apiKey=TU_CLAVE");
         }

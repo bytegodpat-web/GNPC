@@ -14,10 +14,10 @@ public class ModConfig {
     private static Configuration config;
 
     public static String apiKey = "";
-    public static String model = "gemini-3.5-flash";
+    public static String model = "gemini-2.0-flash";
     public static int maxCaptureSize = 1024;
-    public static int dailyRequestLimit = 99999;
-    public static int minRequestCooldownSec = 0;
+    public static int dailyRequestLimit = 200;
+    public static int minRequestCooldownSec = 3;
     public static int spontaneousMinMin = 6;
     public static int spontaneousMaxMin = 99;
     public static boolean alertsEnabled = true;
@@ -43,13 +43,13 @@ public class ModConfig {
 
         apiKey = config.getString("apiKey", "general", "",
                 "API key de Google AI Studio (https://aistudio.google.com/apikey). Nunca se comparte.");
-        model = config.getString("model", "general", "gemini-3.5-flash",
+        model = config.getString("model", "general", "gemini-2.0-flash",
                 "Modelo de Gemini a usar. Cambia si Google retira el actual.");
         maxCaptureSize = config.getInt("maxCaptureSize", "general", 1024, 256, 2048,
                 "Lado largo máximo de la captura en píxeles.");
-        dailyRequestLimit = config.getInt("dailyRequestLimit", "general", 99999, 0, 999999,
+        dailyRequestLimit = config.getInt("dailyRequestLimit", "general", 200, 10, 10000,
                 "Tope diario de peticiones a la API.");
-        minRequestCooldownSec = config.getInt("minRequestCooldownSec", "general", 0, 0, 60,
+        minRequestCooldownSec = config.getInt("minRequestCooldownSec", "general", 3, 1, 60,
                 "Segundos mínimos entre peticiones.");
         spontaneousMinMin = config.getInt("spontaneousMinMin", "general", 6, 1, 120,
                 "Minutos mínimos del temporizador espontáneo.");
@@ -76,7 +76,7 @@ public class ModConfig {
     public static void save() {
         if (config == null) return;
         config.get("general", "apiKey", "").set(apiKey);
-        config.get("general", "model", "gemini-3.5-flash").set(model);
+        config.get("general", "model", "gemini-2.0-flash").set(model);
         config.get("general", "maxCaptureSize", 1024).set(maxCaptureSize);
         config.get("general", "dailyRequestLimit", 200).set(dailyRequestLimit);
         config.get("general", "minRequestCooldownSec", 3).set(minRequestCooldownSec);
@@ -93,22 +93,20 @@ public class ModConfig {
 
     public static boolean canRequest() {
         long now = System.currentTimeMillis();
-        String today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
+        String today = java.time.LocalDate.now().toString();
         if (!today.equals(lastRequestDay)) {
             lastRequestDay = today;
             requestsToday = 0;
         }
-        // 0 = sin tope diario
-        if (dailyRequestLimit > 0 && requestsToday >= dailyRequestLimit) return false;
-        // 0 = sin cooldown del mod
-        if (minRequestCooldownSec > 0 && now - lastRequestMs < minRequestCooldownSec * 1000L) return false;
+        if (requestsToday >= dailyRequestLimit) return false;
+        if (now - lastRequestMs < minRequestCooldownSec * 1000L) return false;
         if (apiKey == null || apiKey.trim().isEmpty()) return false;
         return true;
     }
 
     public static void recordRequest() {
         lastRequestMs = System.currentTimeMillis();
-        String today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
+        String today = java.time.LocalDate.now().toString();
         if (!today.equals(lastRequestDay)) {
             lastRequestDay = today;
             requestsToday = 0;

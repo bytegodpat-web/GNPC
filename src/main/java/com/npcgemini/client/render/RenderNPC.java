@@ -1,6 +1,6 @@
 package com.npcgemini.client.render;
 
-import com.npcgemini.client.SkinManager;
+import com.npcgemini.NPCGeminiMod;
 import com.npcgemini.config.ModConfig;
 import com.npcgemini.entity.EntityNPC;
 import com.npcgemini.profile.BotProfile;
@@ -22,6 +22,9 @@ import java.util.List;
 
 public class RenderNPC extends RenderLivingBase<EntityNPC> {
 
+    private static final ResourceLocation DEFAULT_TEXTURE =
+            new ResourceLocation(NPCGeminiMod.MODID, "textures/entity/npc/luna.png");
+
     private final ModelPlayer modelSlim;
     private final ModelPlayer modelClassic;
 
@@ -39,7 +42,9 @@ public class RenderNPC extends RenderLivingBase<EntityNPC> {
 
     @Override
     protected ResourceLocation getEntityTexture(EntityNPC entity) {
-        return SkinManager.getTexture(entity.getSkinId());
+        String skinId = entity.getSkinId();
+        if (skinId == null || skinId.isEmpty()) skinId = "luna";
+        return new ResourceLocation(NPCGeminiMod.MODID, "textures/entity/npc/" + skinId + ".png");
     }
 
     @Override
@@ -88,7 +93,9 @@ public class RenderNPC extends RenderLivingBase<EntityNPC> {
         GlStateManager.disableLighting();
         GlStateManager.depthMask(false);
         GlStateManager.enableBlend();
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.tryBlendFuncSeparate(
+                GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO);
 
         float halfW = totalW / 2f;
         float top = -totalH;
