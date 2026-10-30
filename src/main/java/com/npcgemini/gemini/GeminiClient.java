@@ -82,8 +82,9 @@ public class GeminiClient {
 
     private static String callApi(BotProfile profile, String userText, String context, byte[] jpegBytes) throws Exception {
         String model = ModConfig.model;
-        String urlStr = "https://generativelanguage.googleapis.com/v1beta/models/"
-                + model + ":generateContent?key=" + ModConfig.apiKey.trim();
+       String urlStr = "https://generativelanguage.googleapis.com/v1beta/models/"
+        + model
+        + ":generateContent";
 
         JsonObject body = new JsonObject();
 
@@ -148,6 +149,7 @@ public class GeminiClient {
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        conn.setRequestProperty("x-goog-api-key", ModConfig.apiKey.trim());
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(20000);
         conn.setDoOutput(true);
